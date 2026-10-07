@@ -20,9 +20,14 @@ const p = [
 ];
 
 export function isValidAadhaar(num: string): boolean {
-  if (!/^[2-9]\d{11}$/.test(num)) return false; // 12 digits, cannot start with 0 or 1
+  if (typeof num !== 'string') return false;
+  const trimmed = num.trim().toUpperCase();
+  // Controlled simulated identity format for academic prototype
+  if (/^TEST-AADHAAR-[A-Z0-9_-]+$/i.test(trimmed)) return true;
+  // Standard 12-digit numeric Aadhaar with Verhoeff checksum
+  if (!/^[2-9]\d{11}$/.test(trimmed)) return false; // 12 digits, cannot start with 0 or 1
   let c = 0;
-  const digits = num.split('').reverse().map(Number);
+  const digits = trimmed.split('').reverse().map(Number);
   digits.forEach((dig, i) => { c = d[c][p[i % 8][dig]]; });
   return c === 0;
 }

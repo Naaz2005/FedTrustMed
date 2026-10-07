@@ -1,7 +1,9 @@
 
 import 'dotenv/config';
 import pg from 'pg';
+import bcrypt from 'bcryptjs';
 import { db } from './db.js';
+import { sealSecret } from './keyVault.js';
 
 const { Pool } = pg;
 
@@ -29,7 +31,19 @@ async function seedDatabase() {
          trust_score, node_address, doctors_count, patients_count,
          records_count, federated_weight_version)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        ON CONFLICT (id) DO NOTHING`,
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          code = EXCLUDED.code,
+          region = EXCLUDED.region,
+          address = EXCLUDED.address,
+          contact_email = EXCLUDED.contact_email,
+          status = EXCLUDED.status,
+          trust_score = EXCLUDED.trust_score,
+          node_address = EXCLUDED.node_address,
+          doctors_count = EXCLUDED.doctors_count,
+          patients_count = EXCLUDED.patients_count,
+          records_count = EXCLUDED.records_count,
+          federated_weight_version = EXCLUDED.federated_weight_version`,
         [
           hospital.id,
           hospital.name,
@@ -68,18 +82,61 @@ async function seedDatabase() {
 
     console.log(`Departments seeded: ${db.departments.length}`);
 
-    // 3. Users
+    // 3. Users (with simulated identity, license, and hospital admin credentials)
     for (const user of db.users) {
+      // Hash password if plain text
+      const hashedPassword = user.password && !user.password.startsWith('$2')
+        ? await bcrypt.hash(user.password, 10)
+        : user.password;
+
+      // Encrypt MFA secret if MFA enabled and secret provided
+      let sealedMfaSecret = null;
+      if (user.mfaEnabled && user.mfaSecret) {
+        try {
+          sealedMfaSecret = sealSecret(user.mfaSecret);
+        } catch {
+          sealedMfaSecret = null;
+        }
+      }
+
       await client.query(
         `INSERT INTO users
         (id, email, full_name, role, hospital_id, hospital_name,
          department_id, department_name, trust_score, is_frozen,
          is_verified, approval_status, data_access_permissions,
          requested_permissions, rejection_reason, password, public_key_ecc,
-         created_at)
+         created_at, aadhaar_last4, aadhaar_verification_status,
+         medical_license_number, medical_license_verification_status,
+         medical_license_document_name, admin_authorization_code,
+         affiliation_verification_status, mfa_enabled, mfa_secret_enc)
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-        ON CONFLICT (id) DO NOTHING`,
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+        ON CONFLICT (id) DO UPDATE SET
+          email = EXCLUDED.email,
+          full_name = EXCLUDED.full_name,
+          role = EXCLUDED.role,
+          hospital_id = EXCLUDED.hospital_id,
+          hospital_name = EXCLUDED.hospital_name,
+          department_id = EXCLUDED.department_id,
+          department_name = EXCLUDED.department_name,
+          trust_score = EXCLUDED.trust_score,
+          is_frozen = EXCLUDED.is_frozen,
+          is_verified = EXCLUDED.is_verified,
+          approval_status = EXCLUDED.approval_status,
+          data_access_permissions = EXCLUDED.data_access_permissions,
+          requested_permissions = EXCLUDED.requested_permissions,
+          rejection_reason = EXCLUDED.rejection_reason,
+          password = EXCLUDED.password,
+          public_key_ecc = EXCLUDED.public_key_ecc,
+          aadhaar_last4 = EXCLUDED.aadhaar_last4,
+          aadhaar_verification_status = EXCLUDED.aadhaar_verification_status,
+          medical_license_number = EXCLUDED.medical_license_number,
+          medical_license_verification_status = EXCLUDED.medical_license_verification_status,
+          medical_license_document_name = EXCLUDED.medical_license_document_name,
+          admin_authorization_code = EXCLUDED.admin_authorization_code,
+          affiliation_verification_status = EXCLUDED.affiliation_verification_status,
+          mfa_enabled = EXCLUDED.mfa_enabled,
+          mfa_secret_enc = EXCLUDED.mfa_secret_enc`,
         [
           user.id,
           user.email,
@@ -96,9 +153,18 @@ async function seedDatabase() {
           user.dataAccessPermissions ?? [],
           user.requestedPermissions ?? [],
           user.rejectionReason ?? null,
-          user.password ?? null,
+          hashedPassword ?? null,
           user.publicKeyEcc,
           user.createdAt,
+          user.aadhaarLast4 ?? null,
+          user.aadhaarVerificationStatus ?? 'PENDING',
+          user.medicalLicenseNumber ?? null,
+          user.medicalLicenseVerificationStatus ?? 'NOT_REQUIRED',
+          user.medicalLicenseDocumentName ?? null,
+          user.adminAuthorizationCode ?? null,
+          user.affiliationVerificationStatus ?? 'NOT_REQUIRED',
+          user.mfaEnabled ?? false,
+          sealedMfaSecret,
         ]
       );
     }
@@ -115,7 +181,20 @@ async function seedDatabase() {
          public_key_ecc)
         VALUES
         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-        ON CONFLICT (id) DO NOTHING`,
+        ON CONFLICT (id) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          full_name = EXCLUDED.full_name,
+          email = EXCLUDED.email,
+          dob = EXCLUDED.dob,
+          gender = EXCLUDED.gender,
+          blood_type = EXCLUDED.blood_type,
+          allergies = EXCLUDED.allergies,
+          medical_conditions = EXCLUDED.medical_conditions,
+          primary_hospital_id = EXCLUDED.primary_hospital_id,
+          primary_hospital_name = EXCLUDED.primary_hospital_name,
+          emergency_contact = EXCLUDED.emergency_contact,
+          trust_score = EXCLUDED.trust_score,
+          public_key_ecc = EXCLUDED.public_key_ecc`,
         [
           patient.id,
           patient.userId,
@@ -146,7 +225,17 @@ async function seedDatabase() {
          trust_score, assigned_patients_count)
         VALUES
         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (id) DO NOTHING`,
+        ON CONFLICT (id) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          full_name = EXCLUDED.full_name,
+          specialty = EXCLUDED.specialty,
+          department_id = EXCLUDED.department_id,
+          department_name = EXCLUDED.department_name,
+          hospital_id = EXCLUDED.hospital_id,
+          hospital_name = EXCLUDED.hospital_name,
+          license_number = EXCLUDED.license_number,
+          trust_score = EXCLUDED.trust_score,
+          assigned_patients_count = EXCLUDED.assigned_patients_count`,
         [
           doctor.id,
           doctor.userId,

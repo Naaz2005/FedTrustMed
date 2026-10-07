@@ -18,7 +18,26 @@ import {
   RefreshCw,
   Search,
   Check,
+  Fingerprint,
+  Stethoscope,
+  BadgeCheck,
+  FlaskConical,
 } from 'lucide-react';
+
+// Helper: renders a simulation verification badge
+const SimBadge: React.FC<{ label: string; value?: string; icon?: React.ReactNode; verified?: boolean }> = ({
+  label, value, icon, verified = true,
+}) => (
+  <div className={`flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+    verified
+      ? 'bg-violet-50 dark:bg-violet-950/60 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+      : 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
+  }`}>
+    {icon}
+    <span className="truncate max-w-[120px]" title={value}>{value || label}</span>
+    {verified && <BadgeCheck className="w-3 h-3 shrink-0 text-violet-500 dark:text-violet-400" />}
+  </div>
+);
 
 export const UserApprovalManager: React.FC = () => {
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
@@ -191,6 +210,47 @@ export const UserApprovalManager: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Simulated Verification Badges */}
+                  {(u.aadhaarLast4 || u.medicalLicenseNumber || u.adminAuthorizationCode) && (
+                    <div className="pt-2 space-y-1.5">
+                      <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Identity Verification:
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        {u.aadhaarLast4 && (
+                          <SimBadge
+                            label="Aadhaar"
+                            value={u.aadhaarLast4}
+                            icon={<Fingerprint className="w-3 h-3" />}
+                            verified={u.aadhaarVerificationStatus === 'VERIFIED' || (u.aadhaarVerificationStatus || '').includes('SIMULATION')}
+                          />
+                        )}
+                        {u.medicalLicenseNumber && (
+                          <SimBadge
+                            label="Med Licence"
+                            value={u.medicalLicenseNumber}
+                            icon={<Stethoscope className="w-3 h-3" />}
+                            verified={u.medicalLicenseVerificationStatus === 'VERIFIED' || (u.medicalLicenseVerificationStatus || '').includes('SIMULATION')}
+                          />
+                        )}
+                        {u.adminAuthorizationCode && (
+                          <SimBadge
+                            label="Auth Code"
+                            value={u.adminAuthorizationCode}
+                            icon={<Key className="w-3 h-3" />}
+                            verified={u.affiliationVerificationStatus === 'VERIFIED' || (u.affiliationVerificationStatus || '').includes('SIMULATION')}
+                          />
+                        )}
+                      </div>
+                      {/* Affiliation status */}
+                      {u.affiliationVerificationStatus && (
+                        <div className="text-[10px] text-violet-600 dark:text-violet-400 font-semibold pl-0.5">
+                          🏥 Affiliation: {u.affiliationVerificationStatus}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Requested Scopes */}
                   <div className="pt-2">
                     <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
@@ -267,6 +327,7 @@ export const UserApprovalManager: React.FC = () => {
               <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase tracking-wider font-semibold">
                 <th className="py-3 px-3">User / Identity</th>
                 <th className="py-3 px-3">Role & Hospital</th>
+                <th className="py-3 px-3">Verification</th>
                 <th className="py-3 px-3">Approval Status</th>
                 <th className="py-3 px-3">Trust Score</th>
                 <th className="py-3 px-3">Granted Data Scopes</th>
@@ -279,10 +340,44 @@ export const UserApprovalManager: React.FC = () => {
                   <td className="py-3.5 px-3">
                     <div className="font-bold text-slate-900 dark:text-white">{u.fullName}</div>
                     <div className="text-[11px] text-slate-400">{u.email}</div>
+                    {u.mfaEnabled && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 mt-0.5">
+                        <ShieldCheck className="w-2.5 h-2.5" /> MFA
+                      </span>
+                    )}
                   </td>
                   <td className="py-3.5 px-3">
                     <span className="font-semibold text-slate-800 dark:text-slate-200">{u.role}</span>
                     <div className="text-[11px] text-slate-400">{u.hospitalName || 'St. Jude General'}</div>
+                  </td>
+                  {/* Verification column */}
+                  <td className="py-3.5 px-3">
+                    <div className="flex flex-col gap-1">
+                      {u.aadhaarLast4 ? (
+                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                          (u.aadhaarVerificationStatus || '').includes('SIMULATION') || u.aadhaarVerificationStatus === 'VERIFIED'
+                            ? 'bg-violet-50 dark:bg-violet-950/60 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300'
+                            : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-500'
+                        }`}>
+                          <Fingerprint className="w-2.5 h-2.5" />
+                          {u.aadhaarLast4}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-slate-400 italic">No Aadhaar</span>
+                      )}
+                      {u.medicalLicenseNumber && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-teal-50 dark:bg-teal-950/60 border-teal-300 dark:border-teal-700 text-teal-700 dark:text-teal-300">
+                          <Stethoscope className="w-2.5 h-2.5" />
+                          {u.medicalLicenseNumber}
+                        </span>
+                      )}
+                      {u.adminAuthorizationCode && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border bg-indigo-50 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300">
+                          <Key className="w-2.5 h-2.5" />
+                          {u.adminAuthorizationCode}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3.5 px-3">
                     {u.approvalStatus === 'APPROVED' ? (
@@ -339,6 +434,47 @@ export const UserApprovalManager: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Simulation Registry Info Panel */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="w-8 h-8 rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+            <FlaskConical className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-slate-900 dark:text-white">Controlled Simulation Identity Registry</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Academic prototype — demo credentials used in place of real government/hospital APIs</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-2xl bg-violet-50/60 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-900/50 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300"><Fingerprint className="w-4 h-4" /> Aadhaar Registry</div>
+            {[{id:'TEST-AADHAAR-0001',name:'Sarah Connor',role:'PATIENT'},{id:'TEST-AADHAAR-0002',name:'Dr. Robert Chen',role:'DOCTOR'},{id:'TEST-AADHAAR-0003',name:'Aisha Khan',role:'HOSPITAL_ADMIN'}].map(e=>(
+              <div key={e.id} className="text-[10px] font-mono bg-white dark:bg-slate-800 rounded-lg px-2 py-1 border border-violet-100 dark:border-violet-900">
+                <div className="font-bold text-violet-700 dark:text-violet-300">{e.id}</div>
+                <div className="text-slate-500">{e.name} · {e.role}</div>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 rounded-2xl bg-teal-50/60 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/50 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-teal-700 dark:text-teal-300"><Stethoscope className="w-4 h-4" /> Medical Licence Registry</div>
+            <div className="text-[10px] font-mono bg-white dark:bg-slate-800 rounded-lg px-2 py-1 border border-teal-100 dark:border-teal-900">
+              <div className="font-bold text-teal-700 dark:text-teal-300">TEST-MED-LIC-0001</div>
+              <div className="text-slate-500">Dr. Robert Chen · Cardiology</div>
+            </div>
+          </div>
+          <div className="p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/50 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300"><Key className="w-4 h-4" /> Hospital Auth Registry</div>
+            <div className="text-[10px] font-mono bg-white dark:bg-slate-800 rounded-lg px-2 py-1 border border-indigo-100 dark:border-indigo-900">
+              <div className="font-bold text-indigo-700 dark:text-indigo-300">HOSP-ADMIN-AUTH-001</div>
+              <div className="text-slate-500">Aisha Khan · hosp-a · HOSPITAL_ADMIN</div>
+            </div>
+          </div>
+        </div>
+        <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-300">
+          <strong>Viva note:</strong> FedTrustMed uses a controlled simulated identity-verification registry. Real Aadhaar numbers and professional credentials are not stored. Production deployment would integrate authorized UIDAI and medical council verification APIs.
         </div>
       </div>
 

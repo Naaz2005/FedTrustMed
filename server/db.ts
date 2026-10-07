@@ -24,6 +24,7 @@ import {
 } from '../src/types/index.js';
 
 import { encryptMedicalRecord, generateEccKeyPair } from './cryptoUtils.js';
+import { sealSecret } from './keyVault.js';
 import { fabricBlockchain } from './blockchain.js';
 
 class RelationalDatabase {
@@ -106,8 +107,80 @@ class RelationalDatabase {
     const hospAdminKeys = generateEccKeyPair();
     const sysAdminKeys = generateEccKeyPair();
 
-    // 3. Users (4 Primary Roles + Pending Approval Testing Users)
+    // 3. Users (Primary Roles + Dedicated Demo Accounts + Testing Users)
     this.users = [
+      // --- DEDICATED DEMO ACCOUNTS (Controlled Simulation Data) ---
+      {
+        id: 'usr-demo-hospadmin',
+        email: 'hospitaladmin.demo@fedtrustmed.local',
+        fullName: 'Aisha Khan (Demo)',
+        role: 'HOSPITAL_ADMIN',
+        hospitalId: 'hosp-a',
+        hospitalName: 'St. Jude General Hospital',
+        trustScore: 96,
+        isFrozen: false,
+        isVerified: true,
+        approvalStatus: 'APPROVED',
+        dataAccessPermissions: ['READ_RECORDS', 'CROSS_HOSPITAL_CONSENT', 'ADMIN_ACCESS', 'AUDIT_LOGS'],
+        password: 'hosp123',
+        publicKeyEcc: hospAdminKeys.publicKeyPem,
+        createdAt: '2025-01-05T08:00:00Z',
+        aadhaarLast4: '0003',
+        aadhaarVerificationStatus: 'VERIFIED',
+        adminAuthorizationCode: 'HOSP-ADMIN-AUTH-001',
+        affiliationVerificationStatus: 'VERIFIED',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
+        mfaEnabled: true,
+        mfaSecret: 'JBSWY3DPEHPK3PXP',
+      },
+      {
+        id: 'usr-demo-doctor',
+        email: 'doctor.demo@fedtrustmed.local',
+        fullName: 'Dr. Robert Chen (Demo)',
+        role: 'DOCTOR',
+        hospitalId: 'hosp-a',
+        hospitalName: 'St. Jude General Hospital',
+        departmentId: 'dept-cardio',
+        departmentName: 'Cardiology',
+        trustScore: 94,
+        isFrozen: false,
+        isVerified: true,
+        approvalStatus: 'APPROVED',
+        dataAccessPermissions: ['READ_RECORDS', 'WRITE_RECORDS', 'CROSS_HOSPITAL_CONSENT'],
+        password: 'doc123',
+        publicKeyEcc: doctorKeys.publicKeyPem,
+        createdAt: '2025-01-10T10:00:00Z',
+        aadhaarLast4: '0002',
+        aadhaarVerificationStatus: 'VERIFIED',
+        medicalLicenseNumber: 'TEST-MED-LIC-0001',
+        medicalLicenseVerificationStatus: 'VERIFIED',
+        medicalLicenseDocumentName: 'NMC_License_RobertChen_Demo.pdf',
+        affiliationVerificationStatus: 'VERIFIED',
+        mfaEnabled: false,
+      },
+      {
+        id: 'usr-demo-patient',
+        email: 'patient.demo@fedtrustmed.local',
+        fullName: 'Sarah Connor (Demo)',
+        role: 'PATIENT',
+        hospitalId: 'hosp-a',
+        hospitalName: 'St. Jude General Hospital',
+        trustScore: 98,
+        isFrozen: false,
+        isVerified: true,
+        approvalStatus: 'APPROVED',
+        dataAccessPermissions: ['READ_RECORDS', 'CROSS_HOSPITAL_CONSENT'],
+        password: 'patient123',
+        publicKeyEcc: patientKeys.publicKeyPem,
+        createdAt: '2025-01-15T09:00:00Z',
+        aadhaarLast4: '0001',
+        aadhaarVerificationStatus: 'VERIFIED',
+        affiliationVerificationStatus: 'VERIFIED',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
+        mfaEnabled: false,
+      },
+
+      // --- STANDARD SYSTEM ACCOUNTS ---
       {
         id: 'usr-patient-1',
         email: 'patient@fedtrustmed.org',
@@ -123,6 +196,11 @@ class RelationalDatabase {
         password: 'patient123',
         publicKeyEcc: patientKeys.publicKeyPem,
         createdAt: '2025-01-15T09:00:00Z',
+        aadhaarLast4: '0001',
+        aadhaarVerificationStatus: 'VERIFIED',
+        affiliationVerificationStatus: 'VERIFIED',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
+        mfaEnabled: false,
       },
       {
         id: 'usr-patient-2',
@@ -139,8 +217,12 @@ class RelationalDatabase {
         password: 'patient123',
         publicKeyEcc: patientKeys.publicKeyPem,
         createdAt: '2025-01-16T09:00:00Z',
+        aadhaarLast4: '0005',
+        aadhaarVerificationStatus: 'VERIFIED',
+        affiliationVerificationStatus: 'VERIFIED',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
+        mfaEnabled: false,
       },
-      
       {
         id: 'usr-doctor-1',
         email: 'doctor@fedtrustmed.org',
@@ -158,6 +240,13 @@ class RelationalDatabase {
         password: 'doc123',
         publicKeyEcc: doctorKeys.publicKeyPem,
         createdAt: '2025-01-10T10:00:00Z',
+        aadhaarLast4: '0002',
+        aadhaarVerificationStatus: 'VERIFIED',
+        medicalLicenseNumber: 'TEST-MED-LIC-0001',
+        medicalLicenseVerificationStatus: 'VERIFIED',
+        medicalLicenseDocumentName: 'MD_Licence_CA994821.pdf',
+        affiliationVerificationStatus: 'VERIFIED',
+        mfaEnabled: false,
       },
       {
         id: 'usr-doctor-2',
@@ -180,6 +269,13 @@ class RelationalDatabase {
         password: 'doc123',
         publicKeyEcc: doctorKeys.publicKeyPem,
         createdAt: '2025-01-11T10:00:00Z',
+        aadhaarLast4: '0004',
+        aadhaarVerificationStatus: 'VERIFIED',
+        medicalLicenseNumber: 'TEST-MED-LIC-0002',
+        medicalLicenseVerificationStatus: 'VERIFIED',
+        medicalLicenseDocumentName: 'MD_Licence_NY773120.pdf',
+        affiliationVerificationStatus: 'VERIFIED',
+        mfaEnabled: false,
       },
       {
         id: 'usr-hospadmin-1',
@@ -196,6 +292,12 @@ class RelationalDatabase {
         password: 'hosp123',
         publicKeyEcc: hospAdminKeys.publicKeyPem,
         createdAt: '2025-01-05T08:00:00Z',
+        aadhaarLast4: '0006',
+        aadhaarVerificationStatus: 'VERIFIED',
+        adminAuthorizationCode: 'HOSP-ADMIN-AUTH-002',
+        affiliationVerificationStatus: 'VERIFIED',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
+        mfaEnabled: false,
       },
       {
         id: 'usr-sysadmin-1',
@@ -217,6 +319,10 @@ class RelationalDatabase {
         password: 'admin123',
         publicKeyEcc: sysAdminKeys.publicKeyPem,
         createdAt: '2025-01-01T00:00:00Z',
+        aadhaarVerificationStatus: 'NOT_REQUIRED',
+        affiliationVerificationStatus: 'NOT_REQUIRED',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
+        mfaEnabled: false,
       },
       // Fake Temporary Users Awaiting Admin Authorization
       {
@@ -237,6 +343,8 @@ class RelationalDatabase {
         password: 'pending123',
         publicKeyEcc: generateEccKeyPair().publicKeyPem,
         createdAt: new Date(Date.now() - 3600000 * 4).toISOString(),
+        aadhaarVerificationStatus: 'PENDING',
+        medicalLicenseVerificationStatus: 'PENDING',
       },
       {
         id: 'usr-pending-patient-1',
@@ -254,6 +362,8 @@ class RelationalDatabase {
         password: 'pending123',
         publicKeyEcc: generateEccKeyPair().publicKeyPem,
         createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+        aadhaarVerificationStatus: 'PENDING',
+        medicalLicenseVerificationStatus: 'NOT_REQUIRED',
       },
       {
         id: 'usr-pending-researcher-1',
@@ -273,11 +383,29 @@ class RelationalDatabase {
         password: 'pending123',
         publicKeyEcc: generateEccKeyPair().publicKeyPem,
         createdAt: new Date(Date.now() - 3600000 * 1).toISOString(),
+        aadhaarVerificationStatus: 'PENDING',
+        medicalLicenseVerificationStatus: 'PENDING',
       },
     ];
 
     // 4. Patients
     this.patients = [
+      {
+        id: 'pat-demo-101',
+        userId: 'usr-demo-patient',
+        fullName: 'Sarah Connor (Demo)',
+        email: 'patient.demo@fedtrustmed.local',
+        dob: '1988-06-14',
+        gender: 'Female',
+        bloodType: 'O+',
+        allergies: ['Penicillin', 'Sulfa Drugs'],
+        medicalConditions: ['Hypertension', 'Mild Asthma'],
+        primaryHospitalId: 'hosp-a',
+        primaryHospitalName: 'St. Jude General Hospital',
+        emergencyContact: 'John Connor (+1-555-0192)',
+        trustScore: 98,
+        publicKeyEcc: patientKeys.publicKeyPem,
+      },
       {
         id: 'pat-101',
         userId: 'usr-patient-1',
@@ -315,6 +443,19 @@ class RelationalDatabase {
     // 5. Doctors
     this.doctors = [
       {
+        id: 'doc-demo-201',
+        userId: 'usr-demo-doctor',
+        fullName: 'Dr. Robert Chen (Demo)',
+        specialty: 'Cardiovascular Surgery',
+        departmentId: 'dept-cardio',
+        departmentName: 'Cardiology',
+        hospitalId: 'hosp-a',
+        hospitalName: 'St. Jude General Hospital',
+        licenseNumber: 'TEST-MED-LIC-0001',
+        trustScore: 94,
+        assignedPatientsCount: 18,
+      },
+      {
         id: 'doc-201',
         userId: 'usr-doctor-1',
         fullName: 'Dr. Robert Chen',
@@ -323,7 +464,7 @@ class RelationalDatabase {
         departmentName: 'Cardiology',
         hospitalId: 'hosp-a',
         hospitalName: 'St. Jude General Hospital',
-        licenseNumber: 'MD-CA-994821',
+        licenseNumber: 'TEST-MED-LIC-0001',
         trustScore: 94,
         assignedPatientsCount: 18,
       },
@@ -336,7 +477,7 @@ class RelationalDatabase {
         departmentName: 'Oncology',
         hospitalId: 'hosp-b',
         hospitalName: 'Metro Heart & Cancer Specialty',
-        licenseNumber: 'MD-NY-773120',
+        licenseNumber: 'TEST-MED-LIC-0002',
         trustScore: 92,
         assignedPatientsCount: 14,
       },

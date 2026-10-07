@@ -35,6 +35,9 @@ export interface User {
   medicalLicenseVerificationStatus?: 'PENDING' | 'VERIFIED' | 'REJECTED' | 'NOT_REQUIRED';
   medicalLicenseDocumentName?: string;
 
+  adminAuthorizationCode?: string;
+  affiliationVerificationStatus?: 'PENDING' | 'VERIFIED' | 'REJECTED' | 'NOT_REQUIRED';
+
   mfaEnabled?: boolean;
   mfaSecret?: string;
 }

@@ -1,21 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import {
-Activity,
-BadgeCheck,
-Building2,
-CheckCircle2,
-Clock,
-CreditCard,
-FileCheck2,
-Key,
-Lock,
-Mail,
-ShieldAlert,
-ShieldCheck,
-Sparkles,
-Stethoscope,
-UserCheck,
-UserPlus,
+  Activity,
+  BadgeCheck,
+  Building2,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Eye,
+  EyeOff,
+  FileCheck2,
+  Key,
+  Lock,
+  Mail,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Stethoscope,
+  UserCheck,
+  UserPlus,
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -32,6 +34,9 @@ const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
 // Login
 const [email, setEmail] = useState('');
 const [password, setPassword] = useState('');
+const [showLoginPassword, setShowLoginPassword] = useState(false);
+const [loginOtp, setLoginOtp] = useState('');
+const [mfaRequired, setMfaRequired] = useState(false);
 const [loginError, setLoginError] = useState<string | null>(null);
 const [loginLoading, setLoginLoading] = useState(false);
 
@@ -48,8 +53,10 @@ const [regAadhaar, setRegAadhaar] = useState('');
 
 // Doctor verification
 const [regMedicalLicenseNumber, setRegMedicalLicenseNumber] = useState('');
-const [regMedicalLicenseDocumentName, setRegMedicalLicenseDocumentName] =
-useState('');
+const [regMedicalLicenseDocumentName, setRegMedicalLicenseDocumentName] = useState('');
+
+// Hospital Admin verification
+const [regAdminAuthCode, setRegAdminAuthCode] = useState('');
 
 const [regSuccess, setRegSuccess] = useState<string | null>(null);
 const [regError, setRegError] = useState<string | null>(null);
@@ -58,174 +65,250 @@ const [regLoading, setRegLoading] = useState(false);
 const [hospitals, setHospitals] = useState<Hospital[]>([]);
 
 useEffect(() => {
-let mounted = true;
+  let mounted = true;
 
-api
-  .getHospitals()
-  .then((res) => {
-    if (mounted && res?.hospitals) {
-      setHospitals(res.hospitals);
-    }
-  })
-  .catch((error) => {
-    console.error('Unable to load hospitals:', error);
-  });
+  api
+    .getHospitals()
+    .then((res) => {
+      if (mounted && res?.hospitals) {
+        setHospitals(res.hospitals);
+      }
+    })
+    .catch((error) => {
+      console.error('Unable to load hospitals:', error);
+    });
 
-return () => {
-  mounted = false;
-};
-
+  return () => {
+    mounted = false;
+  };
 }, []);
 
 const switchMode = (nextMode: 'LOGIN' | 'REGISTER') => {
-setMode(nextMode);
-setLoginError(null);
-setRegError(null);
-setRegSuccess(null);
+  setMode(nextMode);
+  setLoginError(null);
+  setRegError(null);
+  setRegSuccess(null);
+  setMfaRequired(false);
+  setLoginOtp('');
+};
+
+const quickFillLogin = (role: 'HOSPITAL_ADMIN' | 'DOCTOR' | 'PATIENT' | 'SYSTEM_ADMIN') => {
+  setMfaRequired(false);
+  setLoginOtp('');
+  setLoginError(null);
+  setMode('LOGIN');
+
+  if (role === 'HOSPITAL_ADMIN') {
+    setEmail('hospitaladmin.demo@fedtrustmed.local');
+    setPassword('hosp123');
+  } else if (role === 'DOCTOR') {
+    setEmail('doctor.demo@fedtrustmed.local');
+    setPassword('doc123');
+  } else if (role === 'PATIENT') {
+    setEmail('patient.demo@fedtrustmed.local');
+    setPassword('patient123');
+  } else if (role === 'SYSTEM_ADMIN') {
+    setEmail('sysadmin@fedtrustmed.org');
+    setPassword('admin123');
+  }
+};
+
+const quickFillRegister = (role: 'HOSPITAL_ADMIN' | 'DOCTOR' | 'PATIENT') => {
+  setRegError(null);
+  setRegSuccess(null);
+  setMode('REGISTER');
+
+  if (role === 'HOSPITAL_ADMIN') {
+    setRegName('Aisha Khan (Demo)');
+    setRegEmail('hospitaladmin.demo@fedtrustmed.local');
+    setRegPassword('DemoAdmin123!');
+    setRegRole('HOSPITAL_ADMIN');
+    setRegHospitalId('hosp-a');
+    setRegAadhaar('TEST-AADHAAR-0003');
+    setRegAdminAuthCode('HOSP-ADMIN-AUTH-001');
+  } else if (role === 'DOCTOR') {
+    setRegName('Dr. Robert Chen (Demo)');
+    setRegEmail('doctor.demo@fedtrustmed.local');
+    setRegPassword('DemoDoctor123!');
+    setRegRole('DOCTOR');
+    setRegHospitalId('hosp-a');
+    setRegDepartment('Cardiology');
+    setRegAadhaar('TEST-AADHAAR-0002');
+    setRegMedicalLicenseNumber('TEST-MED-LIC-0001');
+    setRegMedicalLicenseDocumentName('NMC_License_RobertChen_Demo.pdf');
+  } else if (role === 'PATIENT') {
+    setRegName('Sarah Connor (Demo)');
+    setRegEmail('patient.demo@fedtrustmed.local');
+    setRegPassword('DemoPatient123!');
+    setRegRole('PATIENT');
+    setRegHospitalId('hosp-a');
+    setRegAadhaar('TEST-AADHAAR-0001');
+  }
 };
 
 const handleLoginSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-e.preventDefault();
+  e.preventDefault();
 
-setLoginError(null);
-setLoginLoading(true);
+  setLoginError(null);
+  setLoginLoading(true);
 
-try {
-  const result = await login(email.trim(), password);
+  try {
+    const result = await login(email.trim(), password, loginOtp.trim());
 
-  if (!result.success) {
-    setLoginError(result.error || 'Authentication failed.');
+    if (!result.success) {
+      if (result.mfaRequired) {
+        setMfaRequired(true);
+        setLoginError(result.error || 'Multi-factor authentication (MFA) code is required.');
+      } else {
+        setLoginError(result.error || 'Authentication failed.');
+      }
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    setLoginError(
+      'Unable to connect to the authentication server. Please try again.'
+    );
+  } finally {
+    setLoginLoading(false);
   }
-} catch (error) {
-  console.error('Login error:', error);
-  setLoginError(
-    'Unable to connect to the authentication server. Please try again.'
-  );
-} finally {
-  setLoginLoading(false);
-}
-
 };
 
 const handleRegisterSubmit = async (
-e: React.FormEvent<HTMLFormElement>
+  e: React.FormEvent<HTMLFormElement>
 ) => {
-e.preventDefault();
+  e.preventDefault();
 
-setRegError(null);
-setRegSuccess(null);
+  setRegError(null);
+  setRegSuccess(null);
 
-const normalizedAadhaar = regAadhaar.replace(/\D/g, '');
+  const normalizedAadhaar = regAadhaar.trim().toUpperCase();
 
-if (!regName.trim()) {
-  setRegError('Please enter your full name.');
-  return;
-}
-
-if (!regEmail.trim()) {
-  setRegError('Please enter your email address.');
-  return;
-}
-
-if (!regPassword) {
-  setRegError('Please create a password.');
-  return;
-}
-
-if (!/^\d{12}$/.test(normalizedAadhaar)) {
-  setRegError('Please enter a valid 12-digit Aadhaar number.');
-  return;
-}
-
-if (!regHospitalId) {
-  setRegError('Please select your primary hospital.');
-  return;
-}
-
-if (regRole === 'DOCTOR') {
-  if (!regDepartment.trim()) {
-    setRegError('Department / specialty is required for doctors.');
+  if (!regName.trim()) {
+    setRegError('Please enter your full name.');
     return;
   }
 
-  if (!regMedicalLicenseNumber.trim()) {
-    setRegError(
-      'Medical licence / registration number is required for doctors.'
+  if (!regEmail.trim()) {
+    setRegError('Please enter your email address.');
+    return;
+  }
+
+  if (!regPassword) {
+    setRegError('Please create a password.');
+    return;
+  }
+
+  if (!normalizedAadhaar.startsWith('TEST-AADHAAR-') && !/^\d{12}$/.test(normalizedAadhaar.replace(/\D/g, ''))) {
+    setRegError('Please enter a valid simulated test identity (e.g. TEST-AADHAAR-0001) or 12-digit Aadhaar number.');
+    return;
+  }
+
+  if (!regHospitalId) {
+    setRegError('Please select your primary hospital.');
+    return;
+  }
+
+  if (regRole === 'DOCTOR') {
+    if (!regDepartment.trim()) {
+      setRegError('Department / specialty is required for doctors.');
+      return;
+    }
+
+    if (!regMedicalLicenseNumber.trim()) {
+      setRegError(
+        'Medical licence / registration number is required for doctors.'
+      );
+      return;
+    }
+
+    if (!regMedicalLicenseDocumentName.trim()) {
+      setRegError(
+        'Medical licence document reference is required for doctors.'
+      );
+      return;
+    }
+  }
+
+  if (regRole === 'HOSPITAL_ADMIN') {
+    if (!regAdminAuthCode.trim()) {
+      setRegError(
+        'Hospital Administrator Authorization Code is required (e.g. HOSP-ADMIN-AUTH-001).'
+      );
+      return;
+    }
+  }
+
+  setRegLoading(true);
+
+  try {
+    const result = await register({
+      fullName: regName.trim(),
+      email: regEmail.trim(),
+      password: regPassword,
+      role: regRole,
+      hospitalId: regHospitalId,
+      departmentName:
+        regRole === 'DOCTOR' ? regDepartment.trim() : undefined,
+      requestedPermissions: ['READ_RECORDS'],
+      aadhaarNumber: normalizedAadhaar,
+      medicalLicenseNumber:
+        regRole === 'DOCTOR'
+          ? regMedicalLicenseNumber.trim().toUpperCase()
+          : undefined,
+      medicalLicenseDocumentName:
+        regRole === 'DOCTOR'
+          ? regMedicalLicenseDocumentName.trim()
+          : undefined,
+      adminAuthorizationCode:
+        regRole === 'HOSPITAL_ADMIN'
+          ? regAdminAuthCode.trim().toUpperCase()
+          : undefined,
+    });
+
+    if (!result.success) {
+      setRegError(result.error || 'Registration failed.');
+      return;
+    }
+
+    setRegSuccess(
+      result.message ||
+      'Registration submitted successfully! Your simulated identity and hospital affiliation have been verified. The account is now pending System Administrator approval before you can sign in.'
     );
-    return;
-  }
 
-  if (!regMedicalLicenseDocumentName.trim()) {
+    setRegName('');
+    setRegEmail('');
+    setRegPassword('');
+    setRegAadhaar('');
+    setRegMedicalLicenseNumber('');
+    setRegMedicalLicenseDocumentName('');
+    setRegAdminAuthCode('');
+    setRegDepartment('Cardiology');
+  } catch (error) {
+    console.error('Registration error:', error);
     setRegError(
-      'Medical licence document reference is required for doctors.'
+      'Unable to submit registration. Please make sure the server is running.'
     );
-    return;
+  } finally {
+    setRegLoading(false);
   }
-}
-
-setRegLoading(true);
-
-try {
-  const result = await register({
-    fullName: regName.trim(),
-    email: regEmail.trim(),
-    password: regPassword,
-    role: regRole,
-    hospitalId: regHospitalId,
-    departmentName:
-      regRole === 'DOCTOR' ? regDepartment.trim() : undefined,
-    requestedPermissions: ['READ_RECORDS'],
-    aadhaarNumber: normalizedAadhaar,
-    medicalLicenseNumber:
-      regRole === 'DOCTOR'
-        ? regMedicalLicenseNumber.trim()
-        : undefined,
-    medicalLicenseDocumentName:
-      regRole === 'DOCTOR'
-        ? regMedicalLicenseDocumentName.trim()
-        : undefined,
-  });
-
-  if (!result.success) {
-    setRegError(result.error || 'Registration failed.');
-    return;
-  }
-
-  setRegSuccess(
-    'Registration submitted successfully. Your Aadhaar verification and account request are pending System Administrator review. Doctor accounts also require medical licence verification before approval. You cannot sign in until the required verification and approval are completed.'
-  );
-
-  setRegName('');
-  setRegEmail('');
-  setRegPassword('');
-  setRegAadhaar('');
-  setRegMedicalLicenseNumber('');
-  setRegMedicalLicenseDocumentName('');
-  setRegDepartment('Cardiology');
-} catch (error) {
-  console.error('Registration error:', error);
-  setRegError(
-    'Unable to submit registration. Please make sure the server is running.'
-  );
-} finally {
-  setRegLoading(false);
-}
-
 };
 
 const handleRoleChange = (role: UserRole) => {
-setRegRole(role);
-setRegError(null);
+  setRegRole(role);
+  setRegError(null);
 
-if (role !== 'DOCTOR') {
-  setRegMedicalLicenseNumber('');
-  setRegMedicalLicenseDocumentName('');
-}
+  if (role !== 'DOCTOR') {
+    setRegMedicalLicenseNumber('');
+    setRegMedicalLicenseDocumentName('');
+  }
 
-if (role === 'DOCTOR' && !regDepartment) {
-  setRegDepartment('Cardiology');
-}
+  if (role !== 'HOSPITAL_ADMIN') {
+    setRegAdminAuthCode('');
+  }
 
+  if (role === 'DOCTOR' && !regDepartment) {
+    setRegDepartment('Cardiology');
+  }
 };
 
 return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -498,27 +581,132 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                     <Key className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
 
                     <input
-                      type="password"
+                      type={showLoginPassword ? 'text' : 'password'}
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter your password"
-                      className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-blue-500"
+                      className="w-full pl-10 pr-11 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-blue-500"
                     />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-200 transition"
+                      title={showLoginPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showLoginPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
+                    </button>
                   </div>
                 </div>
+
+                {/* MFA OTP Challenge */}
+                {mfaRequired && (
+                  <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/60 space-y-3 animate-fadeIn">
+                    <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs">
+                      <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                      Multi-Factor Authentication (MFA) Required
+                    </div>
+                    <p className="text-[11px] text-indigo-200/80 leading-relaxed">
+                      This privileged account has MFA enabled. Enter the 6-digit TOTP code from your authenticator app, or use the academic prototype demo code: <strong className="text-white bg-indigo-900/80 px-1.5 py-0.5 rounded font-mono">123456</strong>.
+                    </p>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        6-Digit TOTP Verification Code
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        autoFocus
+                        value={loginOtp}
+                        onChange={(e) => setLoginOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="123456"
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-indigo-400 rounded-xl text-center text-lg tracking-widest text-white outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="submit"
                   disabled={loginLoading}
-                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl"
+                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20"
                 >
                   {loginLoading
                     ? 'Authenticating...'
+                    : mfaRequired
+                    ? 'Verify MFA & Complete Sign In'
                     : 'Authenticate & Sign In'}
                 </button>
 
-                <div className="pt-4 border-t border-slate-800 text-center">
+                {/* 1-Click Demo Credentials Quick Fill */}
+                <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                      Academic Prototype Demo Accounts
+                    </span>
+                    <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">
+                      1-Click Auto-Fill
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => quickFillLogin('HOSPITAL_ADMIN')}
+                      className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-indigo-900/50 text-left transition"
+                    >
+                      <div className="font-bold text-indigo-300 flex items-center gap-1 text-[11px]">
+                        <Building2 className="w-3 h-3 text-indigo-400" /> Hospital Admin
+                      </div>
+                      <div className="text-[10px] text-slate-300 font-medium truncate mt-0.5">Aisha Khan (Demo)</div>
+                      <div className="text-[9px] text-amber-400 mt-0.5">MFA Active (Code: 123456)</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => quickFillLogin('DOCTOR')}
+                      className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-teal-900/50 text-left transition"
+                    >
+                      <div className="font-bold text-teal-300 flex items-center gap-1 text-[11px]">
+                        <Stethoscope className="w-3 h-3 text-teal-400" /> Doctor (Cardio)
+                      </div>
+                      <div className="text-[10px] text-slate-300 font-medium truncate mt-0.5">Dr. Robert Chen (Demo)</div>
+                      <div className="text-[9px] text-teal-400 mt-0.5">Licence: TEST-MED-LIC-0001</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => quickFillLogin('PATIENT')}
+                      className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-blue-900/50 text-left transition"
+                    >
+                      <div className="font-bold text-blue-300 flex items-center gap-1 text-[11px]">
+                        <UserCheck className="w-3 h-3 text-blue-400" /> Patient
+                      </div>
+                      <div className="text-[10px] text-slate-300 font-medium truncate mt-0.5">Sarah Connor (Demo)</div>
+                      <div className="text-[9px] text-blue-400 mt-0.5">Aadhaar: TEST-AADHAAR-0001</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => quickFillLogin('SYSTEM_ADMIN')}
+                      className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800/80 border border-purple-900/50 text-left transition"
+                    >
+                      <div className="font-bold text-purple-300 flex items-center gap-1 text-[11px]">
+                        <ShieldCheck className="w-3 h-3 text-purple-400" /> System Admin
+                      </div>
+                      <div className="text-[10px] text-slate-300 font-medium truncate mt-0.5">Root Operations</div>
+                      <div className="text-[9px] text-purple-400 mt-0.5">User Approvals & Matrix</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800 text-center">
                   <p className="text-xs text-slate-500">
                     Do not have an approved account?
                   </p>
@@ -543,15 +731,56 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                   </h3>
 
                   <p className="text-xs text-slate-400 mt-1">
-                    Submit your identity information for verification and
-                    administrator approval.
+                    Submit your identity information for simulated registry verification and administrator approval.
                   </p>
+                </div>
+
+                {/* 1-Click Controlled Simulation Auto-Fill */}
+                <div className="p-3.5 rounded-2xl bg-indigo-950/30 border border-indigo-900/60 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-indigo-300">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      Controlled Simulation Auto-Fill (Viva Defense)
+                    </span>
+                    <span className="text-[9px] text-indigo-400 font-bold uppercase tracking-wider bg-indigo-900/40 px-2 py-0.5 rounded-full border border-indigo-800">
+                      Demo Ready
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Auto-fills verified test credentials to demonstrate backend zero-trust checks against the controlled UIDAI, medical licence, and hospital authorization registries.
+                  </p>
+                  <div className="flex flex-wrap gap-2 text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => quickFillRegister('HOSPITAL_ADMIN')}
+                      className="px-2.5 py-1.5 rounded-xl bg-indigo-900/70 hover:bg-indigo-800 border border-indigo-700 text-indigo-200 font-bold text-[11px] flex items-center gap-1 transition"
+                    >
+                      <Building2 className="w-3 h-3 text-indigo-300" />
+                      Hospital Admin (Aisha Khan)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => quickFillRegister('DOCTOR')}
+                      className="px-2.5 py-1.5 rounded-xl bg-teal-900/70 hover:bg-teal-800 border border-teal-700 text-teal-200 font-bold text-[11px] flex items-center gap-1 transition"
+                    >
+                      <Stethoscope className="w-3 h-3 text-teal-300" />
+                      Doctor (Dr. Robert Chen)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => quickFillRegister('PATIENT')}
+                      className="px-2.5 py-1.5 rounded-xl bg-blue-900/70 hover:bg-blue-800 border border-blue-700 text-blue-200 font-bold text-[11px] flex items-center gap-1 transition"
+                    >
+                      <UserCheck className="w-3 h-3 text-blue-300" />
+                      Patient (Sarah Connor)
+                    </button>
+                  </div>
                 </div>
 
                 {regSuccess && (
                   <AlertBox
                     type="success"
-                    title="Request Submitted"
+                    title="Request Submitted & Identity Verified"
                     message={regSuccess}
                   />
                 )}
@@ -559,7 +788,7 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                 {regError && (
                   <AlertBox
                     type="error"
-                    title="Registration Failed"
+                    title="Verification / Registration Failed"
                     message={regError}
                   />
                 )}
@@ -633,10 +862,10 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                   </select>
                 </div>
 
-                {/* Aadhaar */}
+                {/* Aadhaar Input supporting Controlled Simulation */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-2">
-                    Aadhaar Number
+                    Aadhaar / Simulated National ID
                     <span className="text-rose-400 ml-1">*</span>
                   </label>
 
@@ -646,26 +875,45 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                     <input
                       type="text"
                       required
-                      inputMode="numeric"
                       autoComplete="off"
-                      maxLength={12}
                       value={regAadhaar}
-                      onChange={(e) =>
-                        setRegAadhaar(
-                          e.target.value.replace(/\D/g, '').slice(0, 12)
-                        )
-                      }
-                      placeholder="Enter 12-digit Aadhaar number"
-                      className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500"
+                      onChange={(e) => setRegAadhaar(e.target.value.toUpperCase())}
+                      placeholder="e.g. TEST-AADHAAR-0001 (or 12-digit number)"
+                      className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500 font-mono"
                     />
                   </div>
 
                   <p className="mt-2 text-[11px] text-slate-500">
-                    Required for identity verification. The application
-                    stores a protected hash and last four digits rather
-                    than the complete Aadhaar number.
+                    For academic prototype safety, real government identity numbers are never used. Enter a simulated identity (e.g. <strong className="text-slate-300">TEST-AADHAAR-0001</strong> for Patient, <strong className="text-slate-300">TEST-AADHAAR-0002</strong> for Doctor, <strong className="text-slate-300">TEST-AADHAAR-0003</strong> for Hospital Admin).
                   </p>
                 </div>
+
+                {/* Hospital Administrator Authorization Code */}
+                {regRole === 'HOSPITAL_ADMIN' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-2">
+                      Hospital Admin Authorization Code
+                      <span className="text-rose-400 ml-1">*</span>
+                    </label>
+
+                    <div className="relative">
+                      <Building2 className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
+
+                      <input
+                        type="text"
+                        required
+                        value={regAdminAuthCode}
+                        onChange={(e) => setRegAdminAuthCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. HOSP-ADMIN-AUTH-001"
+                        className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Simulated institutional credential issued by the hospital governing body (Demo credential: <strong className="text-slate-300">HOSP-ADMIN-AUTH-001</strong> for St. Jude General Hospital).
+                    </p>
+                  </div>
+                )}
 
                 {/* Doctor fields */}
                 {regRole === 'DOCTOR' && (
@@ -692,10 +940,10 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                           required
                           value={regMedicalLicenseNumber}
                           onChange={(e) =>
-                            setRegMedicalLicenseNumber(e.target.value)
+                            setRegMedicalLicenseNumber(e.target.value.toUpperCase())
                           }
-                          placeholder="Enter medical licence number"
-                          className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500"
+                          placeholder="e.g. TEST-MED-LIC-0001"
+                          className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500 font-mono"
                         />
                       </div>
                     </div>
@@ -704,14 +952,12 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                       label="Medical Licence Document Reference"
                       value={regMedicalLicenseDocumentName}
                       onChange={setRegMedicalLicenseDocumentName}
-                      placeholder="e.g. Medical_License_2026.pdf"
+                      placeholder="e.g. NMC_License_RobertChen_Demo.pdf"
                       required
                     />
 
                     <p className="-mt-2 text-[11px] text-slate-500">
-                      Provide the licence document name or reference.
-                      The System Administrator will verify the licence
-                      before approving the doctor account.
+                      Demo license <strong className="text-slate-300">TEST-MED-LIC-0001</strong> is registered with the simulated National Medical Commission for Dr. Robert Chen.
                     </p>
                   </>
                 )}
@@ -723,14 +969,11 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
 
                     <div>
                       <div className="font-bold text-blue-300 text-xs">
-                        Identity Verification Required
+                        Controlled Verification Simulation Active
                       </div>
 
                       <p className="text-[11px] text-blue-200/70 mt-1 leading-relaxed">
-                        Aadhaar verification is required for all users
-                        except the protected SYSTEM_ADMIN account. Doctor
-                        accounts additionally require medical licence
-                        verification.
+                        Demonstrates automated UIDAI Aadhaar verification, medical council licensure check, and hospital affiliation authentication without storing real sensitive citizen data.
                       </p>
                     </div>
                   </div>
@@ -743,14 +986,11 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
 
                     <div>
                       <div className="font-bold text-amber-300 text-xs">
-                        Administrator Approval Required
+                        Zero-Trust Administrator Clearance Required
                       </div>
 
                       <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">
-                        Registration does not provide immediate access.
-                        Your account remains PENDING until required
-                        verification is completed and a System
-                        Administrator approves the account.
+                        Registration creates a PENDING account. The Root System Administrator reviews the verified credentials and grants specific RBAC/ABAC data-access scopes.
                       </p>
                     </div>
                   </div>
@@ -759,10 +999,10 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                 <button
                   type="submit"
                   disabled={regLoading}
-                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold rounded-xl"
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/20"
                 >
                   {regLoading
-                    ? 'Submitting Request...'
+                    ? 'Verifying & Submitting Request...'
                     : 'Submit Access Request'}
                 </button>
 
@@ -848,35 +1088,60 @@ return ( <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5"> 
 };
 
 const InputField: React.FC<{
-label: string;
-value: string;
-onChange: (value: string) => void;
-placeholder?: string;
-type?: string;
-required?: boolean;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+  required?: boolean;
 }> = ({
-label,
-value,
-onChange,
-placeholder,
-type = 'text',
-required = false,
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+  required = false,
 }) => {
-return ( <div> <label className="block text-xs font-semibold text-slate-300 mb-2">
-{label}
-{required && <span className="text-rose-400 ml-1">*</span>} </label>
+  const [showPassword, setShowPassword] = useState(false);
+  const isPassword = type === 'password';
+  const inputType = isPassword ? (showPassword ? 'text' : 'password') : type;
 
-  <input
-    type={type}
-    required={required}
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    placeholder={placeholder}
-    className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500"
-  />
-</div>
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-slate-300 mb-2">
+        {label}
+        {required && <span className="text-rose-400 ml-1">*</span>}
+      </label>
 
-);
+      <div className="relative">
+        <input
+          type={inputType}
+          required={required}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={`w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-sm text-white outline-none focus:border-indigo-500 ${
+            isPassword ? 'pr-11' : ''
+          }`}
+        />
+
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-3 top-3 text-slate-400 hover:text-slate-200 transition"
+            title={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? (
+              <EyeOff className="w-4 h-4" />
+            ) : (
+              <Eye className="w-4 h-4" />
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
 };
 
 const AlertBox: React.FC<{

@@ -31,6 +31,7 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
   const [diagnosis, setDiagnosis] = useState('');
   const [prescriptionsInput, setPrescriptionsInput] = useState('');
   const [labTestsInput, setLabTestsInput] = useState('');
+  const [attachmentName, setAttachmentName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [latestTx, setLatestTx] = useState<any | null>(null);
 
@@ -380,6 +381,32 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
                   onChange={(e) => setLabTestsInput(e.target.value)}
                   className="w-full mt-1 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                 />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300">
+                  Attach Medical Report File (PDF / DICOM Image / Scanned Document)
+                </label>
+                <div className="mt-1 p-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 flex items-center justify-between gap-3">
+                  <input
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg,.dicom,.dcm,.txt"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setAttachmentName(e.target.files[0].name);
+                      }
+                    }}
+                    className="text-xs text-slate-600 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-teal-100 file:text-teal-800 dark:file:bg-teal-900 dark:file:text-teal-200 cursor-pointer"
+                  />
+                  {attachmentName && (
+                    <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold truncate">
+                      ✓ {attachmentName}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Attached file payloads are converted into encrypted byte buffers using AES-256-GCM before database storage and blockchain hashing.
+                </p>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

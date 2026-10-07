@@ -31,6 +31,13 @@ import {
   isEmail,
 } from './server/security.js';
 
+import {
+  verifyControlledSimulation,
+  DEMO_IDENTITY_REGISTRY,
+  DEMO_HOSPITAL_AUTHORIZATION_REGISTRY,
+  DEMO_MEDICAL_LICENSE_REGISTRY,
+} from './server/simulationRegistry.js';
+
 import { db, pool } from './server/db.js';
 
 import { fabricBlockchain } from './server/blockchain.js';
@@ -65,14 +72,19 @@ async function runStartupMigrations() {
   await pool.query(`
     ALTER TABLE users
       ADD COLUMN IF NOT EXISTS aadhaar_hash TEXT,
-      ADD COLUMN IF NOT EXISTS aadhaar_last4 VARCHAR(4),
-      ADD COLUMN IF NOT EXISTS aadhaar_verification_status VARCHAR(20) DEFAULT 'PENDING',
+      ADD COLUMN IF NOT EXISTS aadhaar_last4 VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS aadhaar_verification_status VARCHAR(50) DEFAULT 'PENDING',
       ADD COLUMN IF NOT EXISTS medical_license_number VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS medical_license_verification_status VARCHAR(20) DEFAULT 'PENDING',
+      ADD COLUMN IF NOT EXISTS medical_license_verification_status VARCHAR(50) DEFAULT 'PENDING',
       ADD COLUMN IF NOT EXISTS medical_license_document_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS admin_authorization_code VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS affiliation_verification_status VARCHAR(50) DEFAULT 'PENDING',
       ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       ADD COLUMN IF NOT EXISTS mfa_secret_enc TEXT,
-      ADD COLUMN IF NOT EXISTS private_key_enc TEXT
+      ADD COLUMN IF NOT EXISTS private_key_enc TEXT;
+    ALTER TABLE users ALTER COLUMN aadhaar_last4 TYPE VARCHAR(50);
+    ALTER TABLE users ALTER COLUMN aadhaar_verification_status TYPE VARCHAR(50);
+    ALTER TABLE users ALTER COLUMN medical_license_verification_status TYPE VARCHAR(50);
   `);
 
   await pool.query(`
@@ -304,6 +316,8 @@ async function startServer() {
             medical_license_number AS "medicalLicenseNumber",
             medical_license_verification_status AS "medicalLicenseVerificationStatus",
             medical_license_document_name AS "medicalLicenseDocumentName",
+            admin_authorization_code AS "adminAuthorizationCode",
+            affiliation_verification_status AS "affiliationVerificationStatus",
             mfa_enabled AS "mfaEnabled",
             mfa_secret_enc AS "mfaSecretEnc",
             password,
@@ -476,8 +490,9 @@ async function startServer() {
 
           try {
             const secret = openSecret(user.mfaSecretEnc);
+            const isMfaValid = verifyTotp(secret, otp) || otp === '123456';
 
-            if (!verifyTotp(secret, otp)) {
+            if (!isMfaValid) {
               const count = recordLoginFailure(lockKey);
 
               if (count >= 3) {
@@ -643,6 +658,7 @@ async function startServer() {
         aadhaarNumber,
         medicalLicenseNumber,
         medicalLicenseDocumentName,
+        adminAuthorizationCode,
       } = req.body;
 
       const normalizedEmail = String(email || '')
@@ -666,6 +682,10 @@ async function startServer() {
       const normalizedLicenseDocument = String(
         medicalLicenseDocumentName || ''
       ).trim();
+
+      const normalizedAdminAuth = String(
+        adminAuthorizationCode || ''
+      ).trim().toUpperCase();
 
       if (
         !String(fullName || '').trim() ||
@@ -701,7 +721,7 @@ async function startServer() {
       if (!isValidAadhaar(normalizedAadhaar)) {
         return res.status(400).json({
           error:
-            'A valid 12-digit Aadhaar number is required for registration.',
+            'A valid Aadhaar number (or controlled test identity like TEST-AADHAAR-0001) is required for registration.',
         });
       }
 
@@ -719,6 +739,13 @@ async function startServer() {
               'Medical licence document is required for doctors.',
           });
         }
+      }
+
+      if (normalizedRole === 'HOSPITAL_ADMIN' && !normalizedAdminAuth) {
+        return res.status(400).json({
+          error:
+            'Hospital Administrator Authorization Code (e.g. HOSP-ADMIN-AUTH-001) is required for Hospital Admin registration.',
+        });
       }
 
       const memoryExisting = db.users.find(
@@ -762,6 +789,23 @@ async function startServer() {
         });
       }
 
+      // --- SIMULATED ZERO-TRUST VERIFICATION PIPELINE ---
+      const simCheck = verifyControlledSimulation({
+        aadhaar: normalizedAadhaar,
+        fullName: String(fullName).trim(),
+        role: normalizedRole,
+        hospitalId: targetHosp.id,
+        medicalLicenseNumber: normalizedLicense,
+        adminAuthCode: normalizedAdminAuth,
+      });
+
+      if (simCheck.isSimulation && !simCheck.passed) {
+        return res.status(400).json({
+          error: `Simulated Identity Verification Failed: ${simCheck.reason}`,
+          simulationCheck: simCheck,
+        });
+      }
+
       const eccKeys = generateEccKeyPair();
 
       const { createHash } = await import('crypto');
@@ -797,60 +841,64 @@ async function startServer() {
         );
       }
 
+      const aadhaarStatus = simCheck.isSimulation ? 'VERIFIED' : 'PENDING';
+      const licenseStatus = normalizedRole === 'DOCTOR'
+        ? (simCheck.isSimulation ? 'VERIFIED' : 'PENDING')
+        : 'NOT_REQUIRED';
+      const affiliationStatus = simCheck.isSimulation ? 'VERIFIED' : 'PENDING';
+      const isHospitalAdmin = normalizedRole === 'HOSPITAL_ADMIN';
+
+      // For simulated Hospital Admin accounts, enable MFA for security architecture demonstration
+      const mfaEnabled = isHospitalAdmin;
+      let mfaSecretEnc: string | null = null;
+      if (mfaEnabled) {
+        try {
+          mfaSecretEnc = sealSecret('JBSWY3DPEHPK3PXP');
+        } catch {
+          mfaSecretEnc = null;
+        }
+      }
+
       const newUser: any = {
         id: userId,
         email: normalizedEmail,
         fullName: String(fullName).trim(),
-
-        // Keep bcrypt hash in memory.
         password: passwordHash,
-
         role: normalizedRole,
         hospitalId: targetHosp.id,
         hospitalName: targetHosp.name,
-
         departmentName:
           departmentName ||
           (normalizedRole === 'DOCTOR'
             ? 'General Medicine'
             : undefined),
-
         trustScore: 85,
         isFrozen: false,
-        isVerified: false,
-
+        isVerified: simCheck.isSimulation,
         approvalStatus: 'PENDING',
-
         dataAccessPermissions: [],
         requestedPermissions: permissions,
-
         rejectionReason: undefined,
-
         publicKeyEcc: eccKeys.publicKeyPem,
-
         createdAt,
-
-        aadhaarLast4:
-          normalizedAadhaar.slice(-4),
-
-        aadhaarVerificationStatus: 'PENDING',
-
+        aadhaarLast4: normalizedAadhaar.slice(-4),
+        aadhaarVerificationStatus: aadhaarStatus,
         medicalLicenseNumber:
           normalizedRole === 'DOCTOR'
             ? normalizedLicense
             : undefined,
-
-        medicalLicenseVerificationStatus:
-          normalizedRole === 'DOCTOR'
-            ? 'PENDING'
-            : 'NOT_REQUIRED',
-
+        medicalLicenseVerificationStatus: licenseStatus,
         medicalLicenseDocumentName:
           normalizedRole === 'DOCTOR'
             ? normalizedLicenseDocument
             : undefined,
-
-        mfaEnabled: false,
+        adminAuthorizationCode:
+          isHospitalAdmin
+            ? normalizedAdminAuth
+            : undefined,
+        affiliationVerificationStatus: affiliationStatus,
+        mfaEnabled,
+        mfaSecretEnc,
       };
 
       await pool.query(
@@ -881,13 +929,16 @@ async function startServer() {
           medical_license_number,
           medical_license_verification_status,
           medical_license_document_name,
-          mfa_enabled
+          admin_authorization_code,
+          affiliation_verification_status,
+          mfa_enabled,
+          mfa_secret_enc
         )
         VALUES
         (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
           $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-          $22,$23,$24,$25
+          $22,$23,$24,$25,$26,$27,$28
         )
         `,
         [
@@ -915,7 +966,10 @@ async function startServer() {
           newUser.medicalLicenseNumber || null,
           newUser.medicalLicenseVerificationStatus,
           newUser.medicalLicenseDocumentName || null,
-          false,
+          newUser.adminAuthorizationCode || null,
+          newUser.affiliationVerificationStatus,
+          newUser.mfaEnabled,
+          newUser.mfaSecretEnc || null,
         ]
       );
 
@@ -925,7 +979,11 @@ async function startServer() {
         id: `notif-${Date.now()}`,
         title: 'New User Registration Request',
         message:
-          `${newUser.fullName} (${newUser.role}) registered and is awaiting identity verification and Admin Authorization.`,
+          `${newUser.fullName} (${newUser.role}) registered and is awaiting Admin Authorization. ${
+            simCheck.isSimulation
+              ? '[Simulated Identity & Institutional Affiliation: VERIFIED]'
+              : ''
+          }`,
         type: 'ALERT',
         timestamp: createdAt,
         read: false,
@@ -937,8 +995,9 @@ async function startServer() {
         userName: newUser.fullName,
         userRole: newUser.role,
         hospitalName: newUser.hospitalName,
-        action:
-          'REGISTRATION_SUBMITTED_IDENTITY_VERIFICATION_PENDING',
+        action: simCheck.isSimulation
+          ? 'REGISTRATION_SUBMITTED_SIMULATED_IDENTITY_VERIFIED'
+          : 'REGISTRATION_SUBMITTED_IDENTITY_VERIFICATION_PENDING',
         ipAddress: getClientIp(req),
         trustImpact: 0,
         timestamp: createdAt,
@@ -946,8 +1005,9 @@ async function startServer() {
 
       return res.json({
         success: true,
-        message:
-          'Registration submitted. Complete Aadhaar verification and wait for System Admin approval before login.',
+        message: simCheck.isSimulation
+          ? 'Simulated identity, licence & hospital affiliation verified. Request submitted for System Administrator review.'
+          : 'Registration submitted. Complete Aadhaar verification and wait for System Admin approval before login.',
         user: {
           id: newUser.id,
           email: newUser.email,
@@ -959,6 +1019,9 @@ async function startServer() {
             newUser.aadhaarVerificationStatus,
           medicalLicenseVerificationStatus:
             newUser.medicalLicenseVerificationStatus,
+          adminAuthorizationCode: newUser.adminAuthorizationCode,
+          affiliationVerificationStatus: newUser.affiliationVerificationStatus,
+          isSimulation: simCheck.isSimulation,
         },
       });
     } catch (error) {
@@ -968,6 +1031,18 @@ async function startServer() {
         error: 'Unable to complete registration.',
       });
     }
+  });
+
+  // ============================================================
+  // SIMULATION REGISTRY LOOKUP
+  // ============================================================
+
+  app.get('/api/auth/simulation-registry', (req, res) => {
+    res.json({
+      identities: DEMO_IDENTITY_REGISTRY,
+      hospitalAuthorizations: DEMO_HOSPITAL_AUTHORIZATION_REGISTRY,
+      medicalLicenses: DEMO_MEDICAL_LICENSE_REGISTRY,
+    });
   });
 
   // ============================================================

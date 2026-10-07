@@ -38,6 +38,8 @@ interface RegisterData {
   medicalLicenseNumber?: string;
 
   medicalLicenseDocumentName?: string;
+
+  adminAuthorizationCode?: string;
 }
 
 interface AuthResult {
@@ -45,6 +47,7 @@ interface AuthResult {
   message?: string;
   error?: string;
   user?: User;
+  mfaRequired?: boolean;
 }
 
 interface RegisterResult {
@@ -62,7 +65,8 @@ interface AuthContextType {
 
   login: (
     email: string,
-    password: string
+    password: string,
+    otp?: string
   ) => Promise<AuthResult>;
 
   register: (
@@ -440,13 +444,15 @@ export const AuthProvider: React.FC<{
   const login = useCallback(
     async (
       email: string,
-      password: string
+      password: string,
+      otp?: string
     ): Promise<AuthResult> => {
       try {
         const response =
           await api.login(
             email,
-            password
+            password,
+            otp
           );
 
         /*
@@ -463,12 +469,16 @@ export const AuthProvider: React.FC<{
             success: false,
 
             message:
+              response?.error ||
               response?.message ||
               'Login failed. Please check your credentials.',
 
             error:
+              response?.error ||
               response?.message ||
               'Login failed. Please check your credentials.',
+
+            mfaRequired: Boolean(response?.mfaRequired),
           };
         }
 
@@ -551,10 +561,12 @@ export const AuthProvider: React.FC<{
             success: false,
 
             message:
+              response?.error ||
               response?.message ||
               'Registration failed. Please try again.',
 
             error:
+              response?.error ||
               response?.message ||
               'Registration failed. Please try again.',
           };

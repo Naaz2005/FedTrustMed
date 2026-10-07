@@ -89,7 +89,8 @@ export const api = {
 
   login: async (
     email: string,
-    password?: string
+    password?: string,
+    otp?: string
   ) => {
     const res = await fetch(
       `${API_BASE}/auth/login`,
@@ -99,6 +100,7 @@ export const api = {
         body: JSON.stringify({
           email,
           password,
+          otp,
         }),
       }
     );
@@ -114,6 +116,16 @@ export const api = {
     }
 
     return data;
+  },
+
+  getSimulationRegistry: async () => {
+    const res = await fetch(
+      `${API_BASE}/auth/simulation-registry`,
+      {
+        headers: authHeaders(),
+      }
+    );
+    return res.json();
   },
 
   register: async (data: any) => {
