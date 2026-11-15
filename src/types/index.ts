@@ -136,6 +136,7 @@ export interface MedicalRecord {
   createdAt: string;
   prescriptions?: string[];
   labTests?: string[];
+  attachmentName?: string;
   iotDeviceId?: string;      // Associated IoT Healthcare Sensor Device ID
 }
 

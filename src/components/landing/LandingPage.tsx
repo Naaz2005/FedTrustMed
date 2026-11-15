@@ -119,30 +119,30 @@ const quickFillRegister = (role: 'HOSPITAL_ADMIN' | 'DOCTOR' | 'PATIENT') => {
   setMode('REGISTER');
 
   if (role === 'HOSPITAL_ADMIN') {
-    setRegName('Aisha Khan (Demo)');
-    setRegEmail('hospitaladmin.demo@fedtrustmed.local');
+    setRegName('Elena Vance (Demo)');
+    setRegEmail('elena.vance.demo@fedtrustmed.org');
     setRegPassword('DemoAdmin123!');
     setRegRole('HOSPITAL_ADMIN');
     setRegHospitalId('hosp-a');
-    setRegAadhaar('TEST-AADHAAR-0003');
-    setRegAdminAuthCode('HOSP-ADMIN-AUTH-001');
+    setRegAadhaar('TEST-AADHAAR-0006');
+    setRegAdminAuthCode('HOSP-ADMIN-AUTH-002');
   } else if (role === 'DOCTOR') {
-    setRegName('Dr. Robert Chen (Demo)');
-    setRegEmail('doctor.demo@fedtrustmed.local');
+    setRegName('Dr. Marcus Vance (Demo)');
+    setRegEmail('marcus.vance.demo@fedtrustmed.org');
     setRegPassword('DemoDoctor123!');
     setRegRole('DOCTOR');
-    setRegHospitalId('hosp-a');
-    setRegDepartment('Cardiology');
-    setRegAadhaar('TEST-AADHAAR-0002');
-    setRegMedicalLicenseNumber('TEST-MED-LIC-0001');
-    setRegMedicalLicenseDocumentName('NMC_License_RobertChen_Demo.pdf');
+    setRegHospitalId('hosp-b');
+    setRegDepartment('Oncology');
+    setRegAadhaar('TEST-AADHAAR-0004');
+    setRegMedicalLicenseNumber('TEST-MED-LIC-0002');
+    setRegMedicalLicenseDocumentName('MD_Licence_MarcusVance_Demo.pdf');
   } else if (role === 'PATIENT') {
-    setRegName('Sarah Connor (Demo)');
-    setRegEmail('patient.demo@fedtrustmed.local');
+    setRegName('Michael Scott (Demo)');
+    setRegEmail('michael.scott.demo@fedtrustmed.org');
     setRegPassword('DemoPatient123!');
     setRegRole('PATIENT');
-    setRegHospitalId('hosp-a');
-    setRegAadhaar('TEST-AADHAAR-0001');
+    setRegHospitalId('hosp-b');
+    setRegAadhaar('TEST-AADHAAR-0005');
   }
 };
 
@@ -756,7 +756,7 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                       className="px-2.5 py-1.5 rounded-xl bg-indigo-900/70 hover:bg-indigo-800 border border-indigo-700 text-indigo-200 font-bold text-[11px] flex items-center gap-1 transition"
                     >
                       <Building2 className="w-3 h-3 text-indigo-300" />
-                      Hospital Admin (Aisha Khan)
+                      Hospital Admin (Elena Vance)
                     </button>
                     <button
                       type="button"
@@ -764,7 +764,7 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                       className="px-2.5 py-1.5 rounded-xl bg-teal-900/70 hover:bg-teal-800 border border-teal-700 text-teal-200 font-bold text-[11px] flex items-center gap-1 transition"
                     >
                       <Stethoscope className="w-3 h-3 text-teal-300" />
-                      Doctor (Dr. Robert Chen)
+                      Doctor (Dr. Marcus Vance)
                     </button>
                     <button
                       type="button"
@@ -772,7 +772,7 @@ return ( <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col"
                       className="px-2.5 py-1.5 rounded-xl bg-blue-900/70 hover:bg-blue-800 border border-blue-700 text-blue-200 font-bold text-[11px] flex items-center gap-1 transition"
                     >
                       <UserCheck className="w-3 h-3 text-blue-300" />
-                      Patient (Sarah Connor)
+                      Patient (Michael Scott)
                     </button>
                   </div>
                 </div>

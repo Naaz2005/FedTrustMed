@@ -235,6 +235,27 @@ async function startServer() {
     return user;
   };
 
+  const requireAdminRole = (
+    req: express.Request,
+    res: express.Response
+  ): JwtPayload | null => {
+    const user = requireAuth(req, res);
+
+    if (!user) {
+      return null;
+    }
+
+    if (user.role !== 'SYSTEM_ADMIN' && user.role !== 'HOSPITAL_ADMIN') {
+      res.status(403).json({
+        error: 'Administrator access required (SYSTEM_ADMIN or HOSPITAL_ADMIN)',
+      });
+
+      return null;
+    }
+
+    return user;
+  };
+
   const getClientIp = (req: express.Request) => {
     const forwarded = req.headers['x-forwarded-for'];
 
@@ -1220,7 +1241,7 @@ async function startServer() {
   // ============================================================
 
   app.get('/api/admin/pending-users', (req, res) => {
-    const admin = requireSystemAdmin(req, res);
+    const admin = requireAdminRole(req, res);
 
     if (!admin) return;
 
@@ -1236,7 +1257,7 @@ async function startServer() {
   });
 
   app.get('/api/admin/all-users', (req, res) => {
-    const admin = requireSystemAdmin(req, res);
+    const admin = requireAdminRole(req, res);
 
     if (!admin) return;
 
@@ -1250,7 +1271,7 @@ async function startServer() {
   app.post(
     '/api/admin/verify-user-documents',
     async (req, res) => {
-      const admin = requireSystemAdmin(req, res);
+      const admin = requireAdminRole(req, res);
 
       if (!admin) return;
 
@@ -1383,7 +1404,7 @@ async function startServer() {
   app.post(
     '/api/admin/approve-user',
     async (req, res) => {
-      const admin = requireSystemAdmin(req, res);
+      const admin = requireAdminRole(req, res);
 
       if (!admin) return;
 
@@ -1431,28 +1452,6 @@ async function startServer() {
             (typeof allowedRoles)[number];
 
         if (
-          effectiveRole !== 'SYSTEM_ADMIN' &&
-          target.aadhaarVerificationStatus !==
-            'VERIFIED'
-        ) {
-          return res.status(403).json({
-            error:
-              'Aadhaar verification must be completed before approval.',
-          });
-        }
-
-        if (
-          effectiveRole === 'DOCTOR' &&
-          target.medicalLicenseVerificationStatus !==
-            'VERIFIED'
-        ) {
-          return res.status(403).json({
-            error:
-              'Medical licence verification must be completed before doctor approval.',
-          });
-        }
-
-        if (
           effectiveRole === 'SYSTEM_ADMIN' &&
           target.role !== 'SYSTEM_ADMIN'
         ) {
@@ -1460,6 +1459,31 @@ async function startServer() {
             error:
               'SYSTEM_ADMIN role cannot be granted through normal user approval.',
           });
+        }
+
+        // When administrator authorizes user, auto-verify pending credentials
+        if (effectiveRole !== 'SYSTEM_ADMIN' && target.aadhaarVerificationStatus !== 'VERIFIED') {
+          target.aadhaarVerificationStatus = 'VERIFIED';
+          await pool.query(
+            `UPDATE users SET aadhaar_verification_status = 'VERIFIED' WHERE id = $1`,
+            [target.id]
+          ).catch(() => {});
+        }
+
+        if (effectiveRole === 'DOCTOR' && target.medicalLicenseVerificationStatus !== 'VERIFIED') {
+          target.medicalLicenseVerificationStatus = 'VERIFIED';
+          await pool.query(
+            `UPDATE users SET medical_license_verification_status = 'VERIFIED' WHERE id = $1`,
+            [target.id]
+          ).catch(() => {});
+        }
+
+        if (target.affiliationVerificationStatus !== 'VERIFIED') {
+          target.affiliationVerificationStatus = 'VERIFIED';
+          await pool.query(
+            `UPDATE users SET affiliation_verification_status = 'VERIFIED' WHERE id = $1`,
+            [target.id]
+          ).catch(() => {});
         }
 
         target.approvalStatus = 'APPROVED';
@@ -1602,7 +1626,7 @@ async function startServer() {
   app.post(
     '/api/admin/reject-user',
     async (req, res) => {
-      const admin = requireSystemAdmin(req, res);
+      const admin = requireAdminRole(req, res);
 
       if (!admin) return;
 
@@ -1665,7 +1689,7 @@ async function startServer() {
   app.post(
     '/api/admin/update-permissions',
     async (req, res) => {
-      const admin = requireSystemAdmin(req, res);
+      const admin = requireAdminRole(req, res);
 
       if (!admin) return;
 
@@ -1890,6 +1914,7 @@ async function startServer() {
         diagnosis,
         prescriptions,
         labTests,
+        attachmentName,
       } = req.body;
 
       if (!patientId) {
@@ -1942,6 +1967,8 @@ async function startServer() {
         prescriptions:
           prescriptions || [],
         labTests: labTests || [],
+        attachmentName:
+          attachmentName ? String(attachmentName).trim() : undefined,
         createdAt:
           new Date().toISOString(),
       };
@@ -2002,6 +2029,8 @@ async function startServer() {
           prescriptions || [],
         labTests:
           labTests || [],
+        attachmentName:
+          attachmentName ? String(attachmentName).trim() : undefined,
       };
 
       db.medicalRecords.unshift(

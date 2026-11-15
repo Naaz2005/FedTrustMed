@@ -243,6 +243,31 @@ export const api = {
     return result;
   },
 
+  verifyUserDocuments: async (data: {
+    userId: string;
+    aadhaarVerified?: boolean;
+    medicalLicenseVerified?: boolean;
+  }) => {
+    const res = await fetch(
+      `${API_BASE}/admin/verify-user-documents`,
+      {
+        method: 'POST',
+        headers: authHeaders(true),
+        body: JSON.stringify(data),
+      }
+    );
+
+    const result = await res.json();
+
+    if (result?.success) {
+      realtime.dataChanged(
+        'USER_DOCUMENTS_VERIFIED'
+      );
+    }
+
+    return result;
+  },
+
   updatePermissions: async (data: {
     userId: string;
     permissions: string[];

@@ -42,7 +42,10 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
   const fetchData = async () => {
     try {
       const patData = await api.getPatients();
-      if (patData && patData.patients) setPatients(patData.patients);
+      if (patData && patData.patients && patData.patients.length > 0) {
+        setPatients(patData.patients);
+        setSelectedPatientId((prev) => (!prev || prev === 'pat-101' ? patData.patients[0].id : prev));
+      }
 
       const recData = await api.getMedicalRecords();
       if (recData && recData.records) setRecords(recData.records);
@@ -66,20 +69,23 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
     try {
       const res = await api.createMedicalRecord({
         patientId: selectedPatientId,
-        doctorId: 'doc-201',
+        doctorId: user?.id || 'doc-201',
         title,
         recordType,
         diagnosis,
         prescriptions: prescriptionsInput.split(',').map((s) => s.trim()).filter(Boolean),
         labTests: labTestsInput.split(',').map((s) => s.trim()).filter(Boolean),
+        attachmentName: attachmentName || undefined,
       });
 
-      if (res && res.record) {
+      if (res && (res.record || res.success)) {
         setLatestTx(res);
         setTitle('');
         setDiagnosis('');
         setPrescriptionsInput('');
         setLabTestsInput('');
+        setAttachmentName('');
+        setShowUploadModal(false);
         fetchData();
       }
     } catch (err) {
@@ -94,7 +100,7 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
     try {
       await api.requestConsent({
         patientId: selectedPatientId,
-        doctorId: 'doc-201',
+        doctorId: user?.id || 'doc-201',
         requestingHospitalId: requestHospital,
         purpose: requestPurpose,
       });
@@ -215,11 +221,16 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
                 className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:border-teal-300 dark:hover:border-teal-700 transition-all space-y-2"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-slate-900 dark:text-white text-sm">{r.title}</span>
                     <span className="text-[10px] font-semibold uppercase bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-200 px-2 py-0.5 rounded-full">
                       {r.recordType}
                     </span>
+                    {r.attachmentName && (
+                      <span className="text-[10px] font-mono bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1 font-semibold">
+                        📎 {r.attachmentName}
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</span>
                 </div>
@@ -412,7 +423,10 @@ export const DoctorDashboard: React.FC<{ setActiveTab: (tab: string) => void }> 
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setAttachmentName('');
+                  }}
                   className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-semibold"
                 >
                   Cancel

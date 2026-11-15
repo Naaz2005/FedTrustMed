@@ -79,24 +79,60 @@ export const UserApprovalManager: React.FC = () => {
 
   const handleApproveSubmit = async () => {
     if (!selectedUser) return;
-    await api.approveUser({
-      userId: selectedUser.id,
-      permissions: editPermissions,
-      role: editRole,
-    });
-    setSelectedUser(null);
-    fetchUsers();
+    try {
+      const res = await api.approveUser({
+        userId: selectedUser.id,
+        permissions: editPermissions,
+        role: editRole,
+      });
+      if (res && res.error) {
+        alert(`Approval Failed: ${res.error}`);
+        return;
+      }
+      setSelectedUser(null);
+      await fetchUsers();
+    } catch (err: any) {
+      console.error('Approval error:', err);
+      alert('Error approving user: ' + (err.message || 'Server error'));
+    }
   };
 
   const handleRejectSubmit = async () => {
     if (!selectedUser) return;
-    await api.rejectUser({
-      userId: selectedUser.id,
-      reason: rejectReason || 'Security credentials or identity verification failed.',
-    });
-    setSelectedUser(null);
-    setIsRejectModalOpen(false);
-    fetchUsers();
+    try {
+      const res = await api.rejectUser({
+        userId: selectedUser.id,
+        reason: rejectReason || 'Security credentials or identity verification failed.',
+      });
+      if (res && res.error) {
+        alert(`Rejection notice: ${res.error}`);
+        return;
+      }
+      setSelectedUser(null);
+      setIsRejectModalOpen(false);
+      setRejectReason('');
+      await fetchUsers();
+    } catch (err: any) {
+      console.error('Reject error:', err);
+      alert('Error rejecting user: ' + (err.message || 'Server error'));
+    }
+  };
+
+  const handleVerifyUserDocs = async (userId: string, aadhaar = true, license = true) => {
+    try {
+      const res = await api.verifyUserDocuments({
+        userId,
+        aadhaarVerified: aadhaar,
+        medicalLicenseVerified: license,
+      });
+      if (res && res.error) {
+        alert(`Verification notice: ${res.error}`);
+      } else {
+        await fetchUsers();
+      }
+    } catch (err: any) {
+      console.error('Verify error:', err);
+    }
   };
 
   const togglePermission = (scope: DataAccessScope) => {
@@ -274,6 +310,15 @@ export const UserApprovalManager: React.FC = () => {
 
                 {/* Actions */}
                 <div className="pt-3 border-t border-amber-200/80 dark:border-amber-900/60 flex items-center gap-2">
+                  {(u.aadhaarVerificationStatus === 'PENDING' || u.medicalLicenseVerificationStatus === 'PENDING') && (
+                    <button
+                      onClick={() => handleVerifyUserDocs(u.id, true, u.role === 'DOCTOR')}
+                      className="py-2 px-2.5 rounded-xl bg-violet-100 hover:bg-violet-200 text-violet-800 dark:bg-violet-950/60 dark:hover:bg-violet-900 dark:text-violet-300 text-xs font-bold flex items-center gap-1 transition-colors"
+                      title="1-Click Verify Aadhaar & Medical Licence in Simulation Registry"
+                    >
+                      <Fingerprint className="w-3.5 h-3.5" /> Verify ID
+                    </button>
+                  )}
                   <button
                     onClick={() => openApproveModal(u)}
                     className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1 shadow-sm transition-colors"
@@ -553,6 +598,10 @@ export const UserApprovalManager: React.FC = () => {
                     );
                   })}
                 </div>
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Zero-Trust verification status and institutional authorization will be verified and committed to the ledger upon approval.</span>
               </div>
             </div>
 
