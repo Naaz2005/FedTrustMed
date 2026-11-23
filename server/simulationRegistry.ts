@@ -1,467 +1,288 @@
 /**
- * ============================================================
- * FedTrustMed - Controlled Simulation Identity Registry
- * ============================================================
- * 
- * For academic prototype demonstration & viva defense:
- * uidai / state medical council / hospital admin verifications
- * are performed against this controlled simulation registry.
- * 
- * Real Aadhaar numbers or government credentials are never stored.
- * Test identifiers use unambiguous labels (e.g. TEST-AADHAAR-XXXX,
- * TEST-MED-LIC-XXXX, HOSP-ADMIN-AUTH-XXXX).
+ * Simulation Registry (Module M9)
+ * Provides pre-seeded synthetic test identities for onboarding research simulations.
+ * Enforces identity bindings when SIMULATION_MODE=true and rejects test values when disabled.
  */
 
-export interface SimulatedIdentity {
-  aadhaarId: string;
+export interface SimulationIdentity {
+  aadhaar: string;
   fullName: string;
-  role: 'PATIENT' | 'DOCTOR' | 'HOSPITAL_ADMIN';
-  hospitalId: string;
-  hospitalName: string;
-  status: 'VERIFIED' | 'REJECTED' | 'SUSPENDED';
-  verificationType: 'VERIFIED — SIMULATION';
-  department?: string;
-  notes?: string;
+  role: 'PATIENT' | 'DOCTOR' | 'HOSPITAL_ADMIN' | 'SYSTEM_ADMIN';
+  hospitalId: string | null;
+  hospitalName: string | null;
+  hospitalCode: string | null;
+  departmentId?: string | null;
+  departmentName?: string | null;
+  medicalLicenseNumber?: string | null;
+  adminAuthorizationCode?: string | null;
+  description: string;
 }
 
-export interface SimulatedHospitalAuthorization {
-  authorizationCode: string;
-  hospitalId: string;
-  hospitalName: string;
-  aadhaarId: string;
-  authorizedName: string;
-  role: 'HOSPITAL_ADMIN';
-  status: 'VERIFIED' | 'REVOKED';
-  verificationType: 'VERIFIED — SIMULATION';
-  issuedBy: string;
-}
-
-export interface SimulatedMedicalLicense {
-  licenseNumber: string;
-  doctorName: string;
-  aadhaarId: string;
-  hospitalId: string;
-  council: string;
-  specialty: string;
-  status: 'VERIFIED' | 'REVOKED';
-  verificationType: 'VERIFIED — SIMULATION';
-  validUntil: string;
-}
-
-// ------------------------------------------------------------
-// 1. Demo Identity Registry (Simulated UIDAI Citizen Database)
-// ------------------------------------------------------------
-export const DEMO_IDENTITY_REGISTRY: Record<string, SimulatedIdentity> = {
+export const SIMULATION_IDENTITIES: Record<string, SimulationIdentity> = {
   'TEST-AADHAAR-0001': {
-    aadhaarId: 'TEST-AADHAAR-0001',
-    fullName: 'Sarah Connor (Demo)',
+    aadhaar: 'TEST-AADHAAR-0001',
+    fullName: 'Aarav Sharma',
     role: 'PATIENT',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Patient Identity for St. Jude General Hospital',
+    hospitalId: 'hosp-st-jude',
+    hospitalName: 'St. Jude General',
+    hospitalCode: 'ST-JUDE',
+    description: 'Demo Patient registered at St. Jude General Hospital',
   },
   'TEST-AADHAAR-0002': {
-    aadhaarId: 'TEST-AADHAAR-0002',
-    fullName: 'Dr. Robert Chen (Demo)',
+    aadhaar: 'TEST-AADHAAR-0002',
+    fullName: 'Dr. Priya Patel',
     role: 'DOCTOR',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    department: 'Cardiology',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Attending Cardiologist Identity',
+    hospitalId: 'hosp-st-jude',
+    hospitalName: 'St. Jude General',
+    hospitalCode: 'ST-JUDE',
+    departmentId: 'dept-stjude-cardio',
+    departmentName: 'Cardiology',
+    medicalLicenseNumber: 'TEST-MED-LIC-0001',
+    description: 'Demo Doctor (Cardiology) at St. Jude General Hospital',
   },
   'TEST-AADHAAR-0003': {
-    aadhaarId: 'TEST-AADHAAR-0003',
-    fullName: 'Aisha Khan (Demo)',
+    aadhaar: 'TEST-AADHAAR-0003',
+    fullName: 'Rajesh Verma',
     role: 'HOSPITAL_ADMIN',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Hospital Administrator for St. Jude General Hospital',
+    hospitalId: 'hosp-st-jude',
+    hospitalName: 'St. Jude General',
+    hospitalCode: 'ST-JUDE',
+    adminAuthorizationCode: 'HOSP-ADMIN-AUTH-001',
+    description: 'Demo Hospital Administrator for St. Jude General Hospital',
   },
   'TEST-AADHAAR-0004': {
-    aadhaarId: 'TEST-AADHAAR-0004',
-    fullName: 'Dr. Marcus Vance (Demo)',
-    role: 'DOCTOR',
-    hospitalId: 'hosp-b',
-    hospitalName: 'Metro Heart & Cancer Specialty',
-    department: 'Oncology',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Oncologist Identity',
+    aadhaar: 'TEST-AADHAAR-0004',
+    fullName: 'Vikram Malhotra',
+    role: 'SYSTEM_ADMIN',
+    hospitalId: null,
+    hospitalName: null,
+    hospitalCode: null,
+    description: 'Demo System Administrator for FedTrustMed Network',
   },
   'TEST-AADHAAR-0005': {
-    aadhaarId: 'TEST-AADHAAR-0005',
-    fullName: 'Michael Scott (Demo)',
-    role: 'PATIENT',
-    hospitalId: 'hosp-b',
+    aadhaar: 'TEST-AADHAAR-0005',
+    fullName: 'Dr. Rajesh Gupta',
+    role: 'DOCTOR',
+    hospitalId: 'hosp-metro-heart',
     hospitalName: 'Metro Heart & Cancer Specialty',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Patient Identity for Metro Specialty',
+    hospitalCode: 'METRO-HCS',
+    departmentId: 'dept-metro-cardio',
+    departmentName: 'Cardiology',
+    medicalLicenseNumber: 'TEST-MED-LIC-0002',
+    description: 'Demo Doctor (Cardiology) at Metro Heart & Cancer Specialty',
   },
   'TEST-AADHAAR-0006': {
-    aadhaarId: 'TEST-AADHAAR-0006',
-    fullName: 'Elena Vance (Demo)',
+    aadhaar: 'TEST-AADHAAR-0006',
+    fullName: 'Sunita Rao',
     role: 'HOSPITAL_ADMIN',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Secondary Hospital Admin Identity',
+    hospitalId: 'hosp-metro-heart',
+    hospitalName: 'Metro Heart & Cancer Specialty',
+    hospitalCode: 'METRO-HCS',
+    adminAuthorizationCode: 'HOSP-ADMIN-AUTH-002',
+    description: 'Demo Hospital Administrator for Metro Heart & Cancer Specialty',
   },
   'TEST-AADHAAR-0009': {
-    aadhaarId: 'TEST-AADHAAR-0009',
-    fullName: 'Demo User (TEST-0009)',
-    role: 'PATIENT',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Simulated Demo Patient Identity 0009',
-  },
-  'TEST-AADHAAR-9999': {
-    aadhaarId: 'TEST-AADHAAR-9999',
-    fullName: 'Unverified Impostor (Demo)',
-    role: 'PATIENT',
-    hospitalId: 'hosp-c',
-    hospitalName: 'City Memorial Hospital',
-    status: 'REJECTED',
-    verificationType: 'VERIFIED — SIMULATION',
-    notes: 'Explicitly flagged simulated identity for testing zero-trust rejection',
+    aadhaar: 'TEST-AADHAAR-0009',
+    fullName: 'Meera Iyer',
+    role: 'HOSPITAL_ADMIN',
+    hospitalId: 'hosp-city-memorial',
+    hospitalName: 'City Memorial',
+    hospitalCode: 'CITY-MEM',
+    adminAuthorizationCode: 'HOSP-ADMIN-AUTH-003',
+    description: 'Demo Hospital Administrator for City Memorial',
   },
 };
 
-// ------------------------------------------------------------
-// 2. Demo Hospital Authorization Registry (Institutional Affiliation)
-// ------------------------------------------------------------
-export const DEMO_HOSPITAL_AUTHORIZATION_REGISTRY: Record<string, SimulatedHospitalAuthorization> = {
-  'HOSP-ADMIN-AUTH-001': {
-    authorizationCode: 'HOSP-ADMIN-AUTH-001',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    aadhaarId: 'TEST-AADHAAR-0003',
-    authorizedName: 'Aisha Khan (Demo)',
-    role: 'HOSPITAL_ADMIN',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    issuedBy: 'St. Jude Hospital Governance Board',
-  },
-  'HOSP-ADMIN-AUTH-002': {
-    authorizationCode: 'HOSP-ADMIN-AUTH-002',
-    hospitalId: 'hosp-a',
-    hospitalName: 'St. Jude General Hospital',
-    aadhaarId: 'TEST-AADHAAR-0006',
-    authorizedName: 'Elena Vance (Demo)',
-    role: 'HOSPITAL_ADMIN',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    issuedBy: 'St. Jude Hospital Governance Board',
-  },
-  'HOSP-ADMIN-AUTH-003': {
-    authorizationCode: 'HOSP-ADMIN-AUTH-003',
-    hospitalId: 'hosp-b',
-    hospitalName: 'Metro Heart & Cancer Specialty',
-    aadhaarId: 'TEST-AADHAAR-XXXX',
-    authorizedName: 'Metro Admin (Demo)',
-    role: 'HOSPITAL_ADMIN',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    issuedBy: 'Metro Health System Board of Trustees',
-  },
-};
+/**
+ * Returns true if simulation mode is active.
+ */
+export function isSimulationMode(): boolean {
+  return process.env.SIMULATION_MODE === 'true';
+}
 
-// ------------------------------------------------------------
-// 3. Demo Medical Licence Registry (Simulated Medical Council)
-// ------------------------------------------------------------
-export const DEMO_MEDICAL_LICENSE_REGISTRY: Record<string, SimulatedMedicalLicense> = {
-  'TEST-MED-LIC-0001': {
-    licenseNumber: 'TEST-MED-LIC-0001',
-    doctorName: 'Dr. Robert Chen (Demo)',
-    aadhaarId: 'TEST-AADHAAR-0002',
-    hospitalId: 'hosp-a',
-    council: 'National Medical Commission (NMC-SIMULATION)',
-    specialty: 'Cardiology',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    validUntil: '2030-12-31',
-  },
-  'TEST-MED-LIC-0002': {
-    licenseNumber: 'TEST-MED-LIC-0002',
-    doctorName: 'Dr. Marcus Vance (Demo)',
-    aadhaarId: 'TEST-AADHAAR-0004',
-    hospitalId: 'hosp-b',
-    council: 'State Medical Council (SMC-SIMULATION)',
-    specialty: 'Oncology',
-    status: 'VERIFIED',
-    verificationType: 'VERIFIED — SIMULATION',
-    validUntil: '2029-12-31',
-  },
-};
+/**
+ * Checks if a string contains a simulation test prefix or identifier.
+ */
+export function isTestIdentifier(val: unknown): boolean {
+  if (typeof val !== 'string') return false;
+  const clean = val.trim();
+  return clean.startsWith('TEST-') || clean.includes('-9999');
+}
 
-// ------------------------------------------------------------
-// Verification Engine
-// ------------------------------------------------------------
-
-export interface VerificationSimulationResult {
+export interface SimulationVerificationResult {
+  ok: boolean;
+  error?: string;
   isSimulation: boolean;
-  passed: boolean;
-  aadhaarStatus: 'VERIFIED' | 'REJECTED' | 'NOT_FOUND' | 'PENDING';
-  affiliationStatus: 'VERIFIED' | 'MISMATCH' | 'NOT_FOUND' | 'NOT_REQUIRED';
-  licenseStatus: 'VERIFIED' | 'NOT_REQUIRED' | 'REJECTED' | 'NOT_FOUND';
-  adminAuthStatus: 'VERIFIED' | 'NOT_REQUIRED' | 'REJECTED' | 'NOT_FOUND';
-  reason?: string;
-  identityRecord?: SimulatedIdentity;
+  identity?: SimulationIdentity;
 }
 
-export function isSimulationAadhaar(aadhaar: string): boolean {
-  const norm = String(aadhaar || '').trim().toUpperCase();
-  return norm.startsWith('TEST-AADHAAR-') || norm in DEMO_IDENTITY_REGISTRY;
+/**
+ * Normalizes human names by trimming, converting to lower case,
+ * and stripping professional titles like "Dr." or "Doctor".
+ */
+function normalizeName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^(dr|doctor)\.?\s+/i, '')
+    .replace(/[\s.'-]+/g, ' ');
 }
 
-export function verifyControlledSimulation(params: {
+/**
+ * Verifies simulation identities against the registry during registration onboarding.
+ */
+export function verifySimulationOnboarding(params: {
   aadhaar: string;
   fullName: string;
   role: string;
-  hospitalId: string;
-  medicalLicenseNumber?: string;
-  adminAuthCode?: string;
-}): VerificationSimulationResult {
-  const normAadhaar = String(params.aadhaar || '').trim().toUpperCase();
-  const normRole = String(params.role || '').trim().toUpperCase();
-  const normHospital = String(params.hospitalId || '').trim();
-  const normLicense = String(params.medicalLicenseNumber || '').trim().toUpperCase();
-  const normAuthCode = String(params.adminAuthCode || '').trim().toUpperCase();
+  hospitalId?: string | null;
+  medicalLicenseNumber?: string | null;
+  adminAuthorizationCode?: string | null;
+}): SimulationVerificationResult {
+  const {
+    aadhaar,
+    fullName,
+    role,
+    hospitalId,
+    medicalLicenseNumber,
+    adminAuthorizationCode,
+  } = params;
 
-  // Check if this is a simulated registration
-  if (!isSimulationAadhaar(normAadhaar)) {
+  const hasTestValue =
+    isTestIdentifier(aadhaar) ||
+    isTestIdentifier(medicalLicenseNumber) ||
+    isTestIdentifier(adminAuthorizationCode);
+
+  // If not a simulation identifier, proceed with regular production checks
+  if (!hasTestValue) {
+    return { ok: true, isSimulation: false };
+  }
+
+  // If simulation mode flag is disabled, reject any test identifiers
+  if (!isSimulationMode()) {
     return {
-      isSimulation: false,
-      passed: true,
-      aadhaarStatus: 'PENDING',
-      affiliationStatus: 'NOT_REQUIRED',
-      licenseStatus: 'NOT_REQUIRED',
-      adminAuthStatus: 'NOT_REQUIRED',
+      ok: false,
+      isSimulation: true,
+      error: 'Simulation test identities are not accepted when SIMULATION_MODE is disabled.',
     };
   }
 
-  // 1. Does identity exist in Demo Identity Registry?
-  let identity = DEMO_IDENTITY_REGISTRY[normAadhaar];
-
-  // Dynamic fallback for test Aadhaar numbers (e.g. TEST-AADHAAR-0009 or any TEST-AADHAAR-XXXX format)
-  if (!identity && normAadhaar.startsWith('TEST-AADHAAR-')) {
-    if (normAadhaar === 'TEST-AADHAAR-9999') {
-      identity = {
-        aadhaarId: normAadhaar,
-        fullName: 'Unverified Impostor (Demo)',
-        role: 'PATIENT',
-        hospitalId: 'hosp-c',
-        hospitalName: 'City Memorial Hospital',
-        status: 'REJECTED',
-        verificationType: 'VERIFIED — SIMULATION',
-        notes: 'Explicitly flagged simulated identity for testing zero-trust rejection',
-      };
-    } else {
-      identity = {
-        aadhaarId: normAadhaar,
-        fullName: params.fullName || `Demo User (${normAadhaar})`,
-        role: (normRole as 'PATIENT' | 'DOCTOR' | 'HOSPITAL_ADMIN') || 'PATIENT',
-        hospitalId: normHospital || 'hosp-a',
-        hospitalName: normHospital === 'hosp-b' ? 'Metro Heart & Cancer Specialty' : 'St. Jude General Hospital',
-        status: 'VERIFIED',
-        verificationType: 'VERIFIED — SIMULATION',
-        notes: 'Dynamically authorized test identity for simulation demonstration',
-      };
-    }
+  // Rejection check for designated failure test identifiers (-9999)
+  if (
+    aadhaar.includes('-9999') ||
+    (medicalLicenseNumber && medicalLicenseNumber.includes('-9999')) ||
+    (adminAuthorizationCode && adminAuthorizationCode.includes('-9999'))
+  ) {
+    return {
+      ok: false,
+      isSimulation: true,
+      error: `Simulation verification failed: Identity is designated for failure testing (-9999 is always rejected).`,
+    };
   }
 
+  // Look up Aadhaar in the simulation registry
+  const identity = SIMULATION_IDENTITIES[aadhaar];
   if (!identity) {
     return {
+      ok: false,
       isSimulation: true,
-      passed: false,
-      aadhaarStatus: 'NOT_FOUND',
-      affiliationStatus: 'NOT_FOUND',
-      licenseStatus: normRole === 'DOCTOR' ? 'NOT_FOUND' : 'NOT_REQUIRED',
-      adminAuthStatus: normRole === 'HOSPITAL_ADMIN' ? 'NOT_FOUND' : 'NOT_REQUIRED',
-      reason: `Simulated identity '${normAadhaar}' does not exist in the Demo Identity Registry.`,
+      error: `Simulation verification failed: Unknown simulation Aadhaar identity "${aadhaar}". Allowed: TEST-AADHAAR-0001..0006, 0009.`,
     };
   }
 
-  // 2. Is identity verified?
-  if (identity.status !== 'VERIFIED') {
+  // 1. Verify Full Name binding
+  const normProvided = normalizeName(fullName);
+  const normExpected = normalizeName(identity.fullName);
+  if (normProvided !== normExpected) {
     return {
+      ok: false,
       isSimulation: true,
-      passed: false,
-      aadhaarStatus: 'REJECTED',
-      affiliationStatus: 'NOT_FOUND',
-      licenseStatus: normRole === 'DOCTOR' ? 'REJECTED' : 'NOT_REQUIRED',
-      adminAuthStatus: normRole === 'HOSPITAL_ADMIN' ? 'REJECTED' : 'NOT_REQUIRED',
-      reason: `Simulated identity '${normAadhaar}' is marked as ${identity.status} in the verification registry.`,
-      identityRecord: identity,
+      error: `Simulation verification failed: Name mismatch for ${aadhaar} (expected "${identity.fullName}", got "${fullName}").`,
     };
   }
 
-  // 3. Is user affiliated with selected hospital?
-  if (identity.hospitalId !== normHospital) {
+  // 2. Verify Role binding
+  if (role !== identity.role) {
     return {
+      ok: false,
       isSimulation: true,
-      passed: false,
-      aadhaarStatus: 'VERIFIED',
-      affiliationStatus: 'MISMATCH',
-      licenseStatus: normRole === 'DOCTOR' ? 'REJECTED' : 'NOT_REQUIRED',
-      adminAuthStatus: normRole === 'HOSPITAL_ADMIN' ? 'REJECTED' : 'NOT_REQUIRED',
-      reason: `Institutional affiliation mismatch: Identity '${identity.fullName}' is officially affiliated with ${identity.hospitalName} (${identity.hospitalId}), but registration attempted for hospital '${normHospital}'.`,
-      identityRecord: identity,
+      error: `Simulation verification failed: Role mismatch for ${aadhaar} (expected "${identity.role}", got "${role}").`,
     };
   }
 
-  // 4. Is role authorized for this identity?
-  if (identity.role !== normRole) {
-    return {
-      isSimulation: true,
-      passed: false,
-      aadhaarStatus: 'VERIFIED',
-      affiliationStatus: 'MISMATCH',
-      licenseStatus: normRole === 'DOCTOR' ? 'REJECTED' : 'NOT_REQUIRED',
-      adminAuthStatus: normRole === 'HOSPITAL_ADMIN' ? 'REJECTED' : 'NOT_REQUIRED',
-      reason: `Role privilege mismatch: Simulated identity '${identity.fullName}' is registered as ${identity.role}, but access was requested as ${normRole}.`,
-      identityRecord: identity,
-    };
-  }
-
-  // 5. Doctor Specific Verification: Medical License Check
-  if (normRole === 'DOCTOR') {
-    if (!normLicense) {
+  // 3. Verify Hospital binding (if specified in registry)
+  if (identity.hospitalId) {
+    const providedHosp = hospitalId?.trim();
+    if (!providedHosp) {
       return {
+        ok: false,
         isSimulation: true,
-        passed: false,
-        aadhaarStatus: 'VERIFIED',
-        affiliationStatus: 'VERIFIED',
-        licenseStatus: 'NOT_FOUND',
-        adminAuthStatus: 'NOT_REQUIRED',
-        reason: 'Medical licence / registration number is required for doctor verification simulation.',
-        identityRecord: identity,
+        error: `Simulation verification failed: Hospital is required for ${role} with ${aadhaar} (expected "${identity.hospitalName}").`,
       };
     }
 
-    let licenseRecord = DEMO_MEDICAL_LICENSE_REGISTRY[normLicense];
-    if (!licenseRecord && (normLicense.startsWith('TEST-MED-LIC-') || normLicense.startsWith('TEST-'))) {
-      licenseRecord = {
-        licenseNumber: normLicense,
-        doctorName: params.fullName || identity.fullName,
-        aadhaarId: normAadhaar,
-        hospitalId: normHospital,
-        council: 'National Medical Commission (NMC-SIMULATION)',
-        specialty: 'General Medicine',
-        status: 'VERIFIED',
-        verificationType: 'VERIFIED — SIMULATION',
-        validUntil: '2030-12-31',
-      };
-    }
+    const matchesHospital =
+      providedHosp === identity.hospitalId ||
+      providedHosp.toLowerCase() === identity.hospitalName?.toLowerCase() ||
+      providedHosp.toUpperCase() === identity.hospitalCode?.toUpperCase();
 
-    if (!licenseRecord) {
+    if (!matchesHospital) {
       return {
+        ok: false,
         isSimulation: true,
-        passed: false,
-        aadhaarStatus: 'VERIFIED',
-        affiliationStatus: 'VERIFIED',
-        licenseStatus: 'NOT_FOUND',
-        adminAuthStatus: 'NOT_REQUIRED',
-        reason: `Medical licence '${normLicense}' not found in the Demo Medical Council Registry.`,
-        identityRecord: identity,
-      };
-    }
-
-    if (
-      licenseRecord.status !== 'VERIFIED' ||
-      (licenseRecord.aadhaarId !== normAadhaar && !licenseRecord.aadhaarId.includes('XXXX') && !normLicense.startsWith('TEST-'))
-    ) {
-      return {
-        isSimulation: true,
-        passed: false,
-        aadhaarStatus: 'VERIFIED',
-        affiliationStatus: 'VERIFIED',
-        licenseStatus: 'REJECTED',
-        adminAuthStatus: 'NOT_REQUIRED',
-        reason: `Medical licence '${normLicense}' is not valid or does not belong to identity '${normAadhaar}'.`,
-        identityRecord: identity,
+        error: `Simulation verification failed: Hospital mismatch for ${aadhaar} (expected "${identity.hospitalName}", got "${providedHosp}").`,
       };
     }
   }
 
-  // 6. Hospital Admin Specific Verification: Hospital Affiliation Authorization Code Check
-  if (normRole === 'HOSPITAL_ADMIN') {
-    if (!normAuthCode) {
+  // 4. Verify Doctor Medical Licence binding
+  if (identity.role === 'DOCTOR') {
+    const providedLic = medicalLicenseNumber?.trim();
+    if (!providedLic) {
       return {
+        ok: false,
         isSimulation: true,
-        passed: false,
-        aadhaarStatus: 'VERIFIED',
-        affiliationStatus: 'MISMATCH',
-        licenseStatus: 'NOT_REQUIRED',
-        adminAuthStatus: 'NOT_FOUND',
-        reason: 'Hospital Administrator Authorization Code (e.g. HOSP-ADMIN-AUTH-001) is required to authenticate institutional authority.',
-        identityRecord: identity,
+        error: `Simulation verification failed: Medical licence is required for doctor ${aadhaar} (expected "${identity.medicalLicenseNumber}").`,
       };
     }
-
-    let authRecord = DEMO_HOSPITAL_AUTHORIZATION_REGISTRY[normAuthCode];
-    if (!authRecord && (normAuthCode.startsWith('HOSP-ADMIN-AUTH-') || normAuthCode.startsWith('HOSP-'))) {
-      authRecord = {
-        authorizationCode: normAuthCode,
-        hospitalId: normHospital,
-        hospitalName: normHospital === 'hosp-b' ? 'Metro Heart & Cancer Specialty' : 'St. Jude General Hospital',
-        aadhaarId: normAadhaar,
-        authorizedName: params.fullName || identity.fullName,
-        role: 'HOSPITAL_ADMIN',
-        status: 'VERIFIED',
-        verificationType: 'VERIFIED — SIMULATION',
-        issuedBy: 'St. Jude Hospital Governance Board',
-      };
-    }
-
-    if (!authRecord) {
+    if (providedLic !== identity.medicalLicenseNumber) {
       return {
+        ok: false,
         isSimulation: true,
-        passed: false,
-        aadhaarStatus: 'VERIFIED',
-        affiliationStatus: 'MISMATCH',
-        licenseStatus: 'NOT_REQUIRED',
-        adminAuthStatus: 'NOT_FOUND',
-        reason: `Authorization code '${normAuthCode}' not recognized in Demo Hospital Authorization Registry.`,
-        identityRecord: identity,
-      };
-    }
-
-    if (
-      authRecord.status !== 'VERIFIED' ||
-      (authRecord.hospitalId !== normHospital && !authRecord.hospitalId.includes('XXXX')) ||
-      (authRecord.aadhaarId !== normAadhaar && !authRecord.aadhaarId.includes('XXXX') && !normAuthCode.startsWith('HOSP-'))
-    ) {
-      return {
-        isSimulation: true,
-        passed: false,
-        aadhaarStatus: 'VERIFIED',
-        affiliationStatus: 'MISMATCH',
-        licenseStatus: 'NOT_REQUIRED',
-        adminAuthStatus: 'REJECTED',
-        reason: `Authorization code '${normAuthCode}' is not verified for hospital '${normHospital}' and identity '${normAadhaar}'.`,
-        identityRecord: identity,
+        error: `Simulation verification failed: Medical licence mismatch for ${aadhaar} (expected "${identity.medicalLicenseNumber}", got "${providedLic}").`,
       };
     }
   }
 
-  // All zero-trust checks passed!
+  // 5. Verify Hospital Admin Authorization Code binding
+  if (identity.role === 'HOSPITAL_ADMIN') {
+    const providedCode = adminAuthorizationCode?.trim();
+    if (!providedCode) {
+      return {
+        ok: false,
+        isSimulation: true,
+        error: `Simulation verification failed: Authorization code is required for hospital admin ${aadhaar} (expected "${identity.adminAuthorizationCode}").`,
+      };
+    }
+    if (providedCode !== identity.adminAuthorizationCode) {
+      return {
+        ok: false,
+        isSimulation: true,
+        error: `Simulation verification failed: Authorization code mismatch for ${aadhaar} (expected "${identity.adminAuthorizationCode}", got "${providedCode}").`,
+      };
+    }
+  }
+
   return {
+    ok: true,
     isSimulation: true,
-    passed: true,
-    aadhaarStatus: 'VERIFIED',
-    affiliationStatus: 'VERIFIED',
-    licenseStatus: normRole === 'DOCTOR' ? 'VERIFIED' : 'NOT_REQUIRED',
-    adminAuthStatus: normRole === 'HOSPITAL_ADMIN' ? 'VERIFIED' : 'NOT_REQUIRED',
-    identityRecord: identity,
+    identity,
   };
+}
+
+/**
+ * Returns safe metadata for all available test identities to list on demo pages.
+ */
+export function getSimulationRegistryList(): SimulationIdentity[] {
+  return Object.values(SIMULATION_IDENTITIES);
 }

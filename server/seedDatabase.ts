@@ -1,432 +1,536 @@
-
-import 'dotenv/config';
-import pg from 'pg';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { db } from './db.js';
-import { sealSecret } from './keyVault.js';
+import { pool } from './db.js';
+import { runMigrations } from './migrate.js';
 
-const { Pool } = pg;
+// Master key resolution (must be 32 bytes / 64 hex characters)
+function getMasterKey(): Buffer {
+  const hex = process.env.MASTER_KEY || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  if (hex.length !== 64) {
+    return crypto.createHash('sha256').update(hex).digest();
+  }
+  return Buffer.from(hex, 'hex');
+}
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 5432),
-  database: process.env.DB_NAME || 'fedtrust',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD,
-});
+// AES-256-GCM encryption helper
+function encryptAesGcm(plainText: string, key: Buffer, aad?: string): { ciphertext: string; iv: string; authTag: string } {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  if (aad) {
+    cipher.setAAD(Buffer.from(aad, 'utf-8'));
+  }
+  const encrypted = Buffer.concat([cipher.update(plainText, 'utf-8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    ciphertext: encrypted.toString('base64'),
+    iv: iv.toString('hex'),
+    authTag: authTag.toString('hex'),
+  };
+}
 
-async function seedDatabase() {
+// Generate P-256 ECC key pair for users and seal private key with MASTER_KEY
+function generateUserKeys(userId: string): { publicKeyEcc: string; privateKeyEnc: string } {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  const masterKey = getMasterKey();
+  const { ciphertext, iv, authTag } = encryptAesGcm(privateKey, masterKey, `private_key:${userId}`);
+  const privateKeyEnc = JSON.stringify({ ciphertext, iv, authTag });
+
+  return {
+    publicKeyEcc: publicKey,
+    privateKeyEnc,
+  };
+}
+
+// Peppered HMAC-SHA256 for Aadhaar simulation numbers
+function computeAadhaarHash(aadhaar: string): string {
+  const pepper = process.env.JWT_SECRET || 'fedtrustmed_aadhaar_pepper_secret_value';
+  return crypto.createHmac('sha256', pepper).update(aadhaar).digest('hex');
+}
+
+export async function seedDatabase(): Promise<void> {
+  console.log('--- Starting FedTrustMed Database Seed ---');
+
+  // Step 1: Ensure migrations are executed first
+  await runMigrations();
+
   const client = await pool.connect();
-
   try {
     await client.query('BEGIN');
 
-    console.log('Starting PostgreSQL seed...');
+    // 1. Seed Hospitals (3 Hospitals)
+    const hospitals = [
+      {
+        id: 'hosp-st-jude',
+        name: 'St. Jude General',
+        code: 'ST-JUDE',
+        region: 'North District',
+        address: '100 Medical Center Blvd, North District',
+        contact_email: 'contact@stjude.fedtrustmed.org',
+        status: 'APPROVED',
+        trust_score: 100.00,
+        node_address: 'peer0.stjude.fedtrustmed.internal:7051',
+        doctors_count: 1,
+        patients_count: 1,
+        records_count: 2,
+      },
+      {
+        id: 'hosp-metro-heart',
+        name: 'Metro Heart & Cancer Specialty',
+        code: 'METRO-HCS',
+        region: 'Central District',
+        address: '250 Specialty Healthcare Way, Central District',
+        contact_email: 'contact@metroheart.fedtrustmed.org',
+        status: 'APPROVED',
+        trust_score: 100.00,
+        node_address: 'peer0.metroheart.fedtrustmed.internal:7051',
+        doctors_count: 0,
+        patients_count: 0,
+        records_count: 0,
+      },
+      {
+        id: 'hosp-city-memorial',
+        name: 'City Memorial',
+        code: 'CITY-MEM',
+        region: 'East District',
+        address: '500 Civic Memorial Ave, East District',
+        contact_email: 'contact@citymemorial.fedtrustmed.org',
+        status: 'APPROVED',
+        trust_score: 100.00,
+        node_address: 'peer0.citymemorial.fedtrustmed.internal:7051',
+        doctors_count: 0,
+        patients_count: 0,
+        records_count: 0,
+      },
+    ];
 
-    // 1. Hospitals
-    for (const hospital of db.hospitals) {
+    for (const hosp of hospitals) {
       await client.query(
-        `INSERT INTO hospitals
-        (id, name, code, region, address, contact_email, status,
-         trust_score, node_address, doctors_count, patients_count,
-         records_count, federated_weight_version)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          code = EXCLUDED.code,
-          region = EXCLUDED.region,
-          address = EXCLUDED.address,
-          contact_email = EXCLUDED.contact_email,
-          status = EXCLUDED.status,
-          trust_score = EXCLUDED.trust_score,
-          node_address = EXCLUDED.node_address,
-          doctors_count = EXCLUDED.doctors_count,
-          patients_count = EXCLUDED.patients_count,
-          records_count = EXCLUDED.records_count,
-          federated_weight_version = EXCLUDED.federated_weight_version`,
+        `INSERT INTO hospitals (id, name, code, region, address, contact_email, status, trust_score, node_address, doctors_count, patients_count, records_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           code = EXCLUDED.code,
+           region = EXCLUDED.region,
+           address = EXCLUDED.address,
+           contact_email = EXCLUDED.contact_email,
+           status = EXCLUDED.status,
+           trust_score = EXCLUDED.trust_score,
+           node_address = EXCLUDED.node_address,
+           doctors_count = EXCLUDED.doctors_count,
+           patients_count = EXCLUDED.patients_count,
+           records_count = EXCLUDED.records_count;`,
+        [hosp.id, hosp.name, hosp.code, hosp.region, hosp.address, hosp.contact_email, hosp.status, hosp.trust_score, hosp.node_address, hosp.doctors_count, hosp.patients_count, hosp.records_count]
+      );
+    }
+    console.log(`[Seed] Seeded ${hospitals.length} hospitals.`);
+
+    // 2. Seed Departments
+    const departments = [
+      { id: 'dept-stjude-cardio', hospital_id: 'hosp-st-jude', name: 'Cardiology', head_doctor_name: 'Dr. Priya Patel' },
+      { id: 'dept-stjude-genmed', hospital_id: 'hosp-st-jude', name: 'General Medicine', head_doctor_name: 'Dr. Alok Verma' },
+      { id: 'dept-metro-cardio', hospital_id: 'hosp-metro-heart', name: 'Cardiology', head_doctor_name: 'Dr. Rajesh Gupta' },
+      { id: 'dept-metro-onco', hospital_id: 'hosp-metro-heart', name: 'Oncology', head_doctor_name: 'Dr. Sunita Rao' },
+      { id: 'dept-city-genmed', hospital_id: 'hosp-city-memorial', name: 'General Medicine', head_doctor_name: 'Dr. Meera Iyer' },
+    ];
+
+    for (const dept of departments) {
+      await client.query(
+        `INSERT INTO departments (id, hospital_id, name, head_doctor_name)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name,
+           head_doctor_name = EXCLUDED.head_doctor_name;`,
+        [dept.id, dept.hospital_id, dept.name, dept.head_doctor_name]
+      );
+    }
+    console.log(`[Seed] Seeded ${departments.length} departments.`);
+
+    // 3. Seed Demo Users (1 per role, bcrypt cost 12, approved AND identity-verified)
+    const demoPassword = 'Password123!';
+    const demoPasswordHash = await bcrypt.hash(demoPassword, 12);
+
+    const demoUsers = [
+      {
+        id: 'usr-patient-001',
+        email: 'patient@fedtrustmed.demo',
+        full_name: 'Aarav Sharma',
+        role: 'PATIENT',
+        hospital_id: 'hosp-st-jude',
+        hospital_name: 'St. Jude General',
+        department_id: null,
+        department_name: null,
+        aadhaar_raw: 'TEST-AADHAAR-0001',
+        aadhaar_last4: '0001',
+        medical_license_number: null,
+        medical_license_verification_status: 'NOT_REQUIRED',
+        admin_authorization_code: null,
+        affiliation_verification_status: 'NOT_REQUIRED',
+      },
+      {
+        id: 'usr-doctor-001',
+        email: 'doctor@fedtrustmed.demo',
+        full_name: 'Dr. Priya Patel',
+        role: 'DOCTOR',
+        hospital_id: 'hosp-st-jude',
+        hospital_name: 'St. Jude General',
+        department_id: 'dept-stjude-cardio',
+        department_name: 'Cardiology',
+        aadhaar_raw: 'TEST-AADHAAR-0005',
+        aadhaar_last4: '0005',
+        medical_license_number: 'TEST-MED-LIC-0002',
+        medical_license_verification_status: 'VERIFIED - SIMULATION',
+        admin_authorization_code: null,
+        affiliation_verification_status: 'NOT_REQUIRED',
+      },
+      {
+        id: 'usr-hospadmin-001',
+        email: 'hospital_admin@fedtrustmed.demo',
+        full_name: 'Rajesh Verma',
+        role: 'HOSPITAL_ADMIN',
+        hospital_id: 'hosp-st-jude',
+        hospital_name: 'St. Jude General',
+        department_id: null,
+        department_name: null,
+        aadhaar_raw: 'TEST-AADHAAR-0003',
+        aadhaar_last4: '0003',
+        medical_license_number: null,
+        medical_license_verification_status: 'NOT_REQUIRED',
+        admin_authorization_code: 'HOSP-ADMIN-AUTH-001',
+        affiliation_verification_status: 'VERIFIED - SIMULATION',
+      },
+      {
+        id: 'usr-sysadmin-001',
+        email: 'system_admin@fedtrustmed.demo',
+        full_name: 'Vikram Malhotra',
+        role: 'SYSTEM_ADMIN',
+        hospital_id: null,
+        hospital_name: null,
+        department_id: null,
+        department_name: null,
+        aadhaar_raw: 'TEST-AADHAAR-0004',
+        aadhaar_last4: '0004',
+        medical_license_number: null,
+        medical_license_verification_status: 'NOT_REQUIRED',
+        admin_authorization_code: null,
+        affiliation_verification_status: 'NOT_REQUIRED',
+      },
+    ];
+
+    for (const u of demoUsers) {
+      const { publicKeyEcc, privateKeyEnc } = generateUserKeys(u.id);
+      const aadhaarHash = computeAadhaarHash(u.aadhaar_raw);
+
+      await client.query(
+        `INSERT INTO users (
+           id, email, full_name, role, hospital_id, hospital_name, department_id, department_name,
+           password, aadhaar_hash, aadhaar_last4, approval_status, aadhaar_verification_status,
+           medical_license_number, medical_license_verification_status, admin_authorization_code,
+           affiliation_verification_status, is_frozen, trust_score, mfa_enabled, private_key_enc,
+           public_key_ecc, failed_login_count, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'APPROVED', 'VERIFIED - SIMULATION', $12, $13, $14, $15, FALSE, 100.00, FALSE, $16, $17, 0, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           email = EXCLUDED.email,
+           full_name = EXCLUDED.full_name,
+           role = EXCLUDED.role,
+           hospital_id = EXCLUDED.hospital_id,
+           hospital_name = EXCLUDED.hospital_name,
+           department_id = EXCLUDED.department_id,
+           department_name = EXCLUDED.department_name,
+           password = EXCLUDED.password,
+           aadhaar_hash = EXCLUDED.aadhaar_hash,
+           aadhaar_last4 = EXCLUDED.aadhaar_last4,
+           approval_status = 'APPROVED',
+           aadhaar_verification_status = 'VERIFIED - SIMULATION',
+           medical_license_number = EXCLUDED.medical_license_number,
+           medical_license_verification_status = EXCLUDED.medical_license_verification_status,
+           admin_authorization_code = EXCLUDED.admin_authorization_code,
+           affiliation_verification_status = EXCLUDED.affiliation_verification_status,
+           is_frozen = FALSE,
+           trust_score = 100.00,
+           private_key_enc = EXCLUDED.private_key_enc,
+           public_key_ecc = EXCLUDED.public_key_ecc,
+           failed_login_count = 0,
+           updated_at = NOW();`,
         [
-          hospital.id,
-          hospital.name,
-          hospital.code,
-          hospital.region,
-          hospital.address,
-          hospital.contactEmail,
-          hospital.status,
-          hospital.trustScore,
-          hospital.nodeAddress,
-          hospital.doctorsCount,
-          hospital.patientsCount,
-          hospital.recordsCount,
-          hospital.federatedWeightVersion,
+          u.id,
+          u.email,
+          u.full_name,
+          u.role,
+          u.hospital_id,
+          u.hospital_name,
+          u.department_id,
+          u.department_name,
+          demoPasswordHash,
+          aadhaarHash,
+          u.aadhaar_last4,
+          u.medical_license_number,
+          u.medical_license_verification_status,
+          u.admin_authorization_code,
+          u.affiliation_verification_status,
+          privateKeyEnc,
+          publicKeyEcc,
         ]
       );
     }
+    console.log(`[Seed] Seeded ${demoUsers.length} demo users (all 4 roles).`);
 
-    console.log(`Hospitals seeded: ${db.hospitals.length}`);
+    // 4. Seed Patient Profile for Patient Demo User
+    await client.query(
+      `INSERT INTO patients (
+         id, user_id, full_name, email, dob, gender, blood_type, allergies, medical_conditions,
+         primary_hospital_id, primary_hospital_name, emergency_contact, trust_score
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 100.00)
+       ON CONFLICT (id) DO UPDATE SET
+         full_name = EXCLUDED.full_name,
+         email = EXCLUDED.email,
+         blood_type = EXCLUDED.blood_type,
+         allergies = EXCLUDED.allergies,
+         medical_conditions = EXCLUDED.medical_conditions,
+         emergency_contact = EXCLUDED.emergency_contact;`,
+      [
+        'pat-profile-001',
+        'usr-patient-001',
+        'Aarav Sharma',
+        'patient@fedtrustmed.demo',
+        '1988-06-15',
+        'Male',
+        'O+',
+        ['Penicillin'],
+        ['Hypertension'],
+        'hosp-st-jude',
+        'St. Jude General',
+        '+91-9876543210 (Spouse)',
+      ]
+    );
 
-    // 2. Departments
-    for (const department of db.departments) {
-      await client.query(
-        `INSERT INTO departments
-        (id, hospital_id, name, head_doctor_name)
-        VALUES ($1,$2,$3,$4)
-        ON CONFLICT (id) DO NOTHING`,
-        [
-          department.id,
-          department.hospitalId,
-          department.name,
-          department.headDoctorName,
-        ]
-      );
-    }
+    // 5. Seed Doctor Profile for Doctor Demo User
+    await client.query(
+      `INSERT INTO doctors (
+         id, user_id, full_name, specialty, department_id, department_name,
+         hospital_id, hospital_name, license_number, trust_score, assigned_patients_count
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 100.00, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         full_name = EXCLUDED.full_name,
+         specialty = EXCLUDED.specialty,
+         department_id = EXCLUDED.department_id,
+         department_name = EXCLUDED.department_name,
+         hospital_id = EXCLUDED.hospital_id,
+         hospital_name = EXCLUDED.hospital_name,
+         license_number = EXCLUDED.license_number;`,
+      [
+        'doc-profile-001',
+        'usr-doctor-001',
+        'Dr. Priya Patel',
+        'Cardiology',
+        'dept-stjude-cardio',
+        'Cardiology',
+        'hosp-st-jude',
+        'St. Jude General',
+        'TEST-MED-LIC-0001',
+      ]
+    );
+    console.log('[Seed] Seeded patient and doctor profile records.');
 
-    console.log(`Departments seeded: ${db.departments.length}`);
+    // 6. Seed 2 Medical Records (Encrypted with AES-256-GCM)
+    const masterKey = getMasterKey();
 
-    // 3. Users (with simulated identity, license, and hospital admin credentials)
-    for (const user of db.users) {
-      // Hash password if plain text
-      const hashedPassword = user.password && !user.password.startsWith('$2')
-        ? await bcrypt.hash(user.password, 10)
-        : user.password;
+    const record1Data = JSON.stringify({
+      history: 'Patient presents with intermittent exertional chest tightness for 2 weeks.',
+      clinicalNotes: 'Resting ECG shows mild ST-depression in lateral leads. Stress test advised.',
+      vitals: { heartRate: 74, bpSystolic: 130, bpDiastolic: 84, spO2: 98, temperature: 36.8 },
+    });
+    const dataKey1 = crypto.randomBytes(32);
+    const encRecord1 = encryptAesGcm(record1Data, dataKey1, 'rec-demo-001');
+    const wrappedKey1 = encryptAesGcm(dataKey1.toString('hex'), masterKey, 'data_key:rec-demo-001');
+    const sha256Record1 = crypto.createHash('sha256').update(encRecord1.ciphertext).digest('hex');
 
-      // Encrypt MFA secret if MFA enabled and secret provided
-      let sealedMfaSecret = null;
-      if (user.mfaEnabled && user.mfaSecret) {
-        try {
-          sealedMfaSecret = sealSecret(user.mfaSecret);
-        } catch {
-          sealedMfaSecret = null;
-        }
-      }
+    await client.query(
+      `INSERT INTO medical_records (
+         id, patient_id, patient_name, doctor_id, doctor_name, hospital_id, hospital_name,
+         title, record_type, diagnosis, encrypted_content, iv_aes, auth_tag, ecc_encrypted_aes_key,
+         server_master_wrapped_key, sha256_hash, prescriptions, lab_tests
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title,
+         diagnosis = EXCLUDED.diagnosis,
+         encrypted_content = EXCLUDED.encrypted_content,
+         iv_aes = EXCLUDED.iv_aes,
+         auth_tag = EXCLUDED.auth_tag,
+         sha256_hash = EXCLUDED.sha256_hash;`,
+      [
+        'rec-demo-001',
+        'pat-profile-001',
+        'Aarav Sharma',
+        'doc-profile-001',
+        'Dr. Priya Patel',
+        'hosp-st-jude',
+        'St. Jude General',
+        'Comprehensive Cardiac Evaluation',
+        'Cardiology Report',
+        'I20.9 - Angina pectoris, unspecified',
+        encRecord1.ciphertext,
+        encRecord1.iv,
+        encRecord1.authTag,
+        JSON.stringify(wrappedKey1),
+        JSON.stringify(wrappedKey1),
+        sha256Record1,
+        ['Aspirin 75mg once daily', 'Atorvastatin 20mg once daily at bedtime'],
+        ['Lipid Panel', '12-Lead Electrocardiogram', 'Troponin I'],
+      ]
+    );
 
-      await client.query(
-        `INSERT INTO users
-        (id, email, full_name, role, hospital_id, hospital_name,
-         department_id, department_name, trust_score, is_frozen,
-         is_verified, approval_status, data_access_permissions,
-         requested_permissions, rejection_reason, password, public_key_ecc,
-         created_at, aadhaar_last4, aadhaar_verification_status,
-         medical_license_number, medical_license_verification_status,
-         medical_license_document_name, admin_authorization_code,
-         affiliation_verification_status, mfa_enabled, mfa_secret_enc)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
-        ON CONFLICT (id) DO UPDATE SET
-          email = EXCLUDED.email,
-          full_name = EXCLUDED.full_name,
-          role = EXCLUDED.role,
-          hospital_id = EXCLUDED.hospital_id,
-          hospital_name = EXCLUDED.hospital_name,
-          department_id = EXCLUDED.department_id,
-          department_name = EXCLUDED.department_name,
-          trust_score = EXCLUDED.trust_score,
-          is_frozen = EXCLUDED.is_frozen,
-          is_verified = EXCLUDED.is_verified,
-          approval_status = EXCLUDED.approval_status,
-          data_access_permissions = EXCLUDED.data_access_permissions,
-          requested_permissions = EXCLUDED.requested_permissions,
-          rejection_reason = EXCLUDED.rejection_reason,
-          password = EXCLUDED.password,
-          public_key_ecc = EXCLUDED.public_key_ecc,
-          aadhaar_last4 = EXCLUDED.aadhaar_last4,
-          aadhaar_verification_status = EXCLUDED.aadhaar_verification_status,
-          medical_license_number = EXCLUDED.medical_license_number,
-          medical_license_verification_status = EXCLUDED.medical_license_verification_status,
-          medical_license_document_name = EXCLUDED.medical_license_document_name,
-          admin_authorization_code = EXCLUDED.admin_authorization_code,
-          affiliation_verification_status = EXCLUDED.affiliation_verification_status,
-          mfa_enabled = EXCLUDED.mfa_enabled,
-          mfa_secret_enc = EXCLUDED.mfa_secret_enc`,
-        [
-          user.id,
-          user.email,
-          user.fullName,
-          user.role,
-          user.hospitalId ?? null,
-          user.hospitalName ?? null,
-          user.departmentId ?? null,
-          user.departmentName ?? null,
-          user.trustScore,
-          user.isFrozen,
-          user.isVerified,
-          user.approvalStatus ?? null,
-          user.dataAccessPermissions ?? [],
-          user.requestedPermissions ?? [],
-          user.rejectionReason ?? null,
-          hashedPassword ?? null,
-          user.publicKeyEcc,
-          user.createdAt,
-          user.aadhaarLast4 ?? null,
-          user.aadhaarVerificationStatus ?? 'PENDING',
-          user.medicalLicenseNumber ?? null,
-          user.medicalLicenseVerificationStatus ?? 'NOT_REQUIRED',
-          user.medicalLicenseDocumentName ?? null,
-          user.adminAuthorizationCode ?? null,
-          user.affiliationVerificationStatus ?? 'NOT_REQUIRED',
-          user.mfaEnabled ?? false,
-          sealedMfaSecret,
-        ]
-      );
-    }
+    const record2Data = JSON.stringify({
+      history: 'Routine annual preventive health assessment.',
+      clinicalNotes: 'Elevated fasting triglycerides and LDL-C noted. Lifestyle modifications initiated.',
+      vitals: { heartRate: 68, bpSystolic: 122, bpDiastolic: 78, spO2: 99, temperature: 36.6 },
+    });
+    const dataKey2 = crypto.randomBytes(32);
+    const encRecord2 = encryptAesGcm(record2Data, dataKey2, 'rec-demo-002');
+    const wrappedKey2 = encryptAesGcm(dataKey2.toString('hex'), masterKey, 'data_key:rec-demo-002');
+    const sha256Record2 = crypto.createHash('sha256').update(encRecord2.ciphertext).digest('hex');
 
-    console.log(`Users seeded: ${db.users.length}`);
+    await client.query(
+      `INSERT INTO medical_records (
+         id, patient_id, patient_name, doctor_id, doctor_name, hospital_id, hospital_name,
+         title, record_type, diagnosis, encrypted_content, iv_aes, auth_tag, ecc_encrypted_aes_key,
+         server_master_wrapped_key, sha256_hash, prescriptions, lab_tests
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title,
+         diagnosis = EXCLUDED.diagnosis,
+         encrypted_content = EXCLUDED.encrypted_content,
+         iv_aes = EXCLUDED.iv_aes,
+         auth_tag = EXCLUDED.auth_tag,
+         sha256_hash = EXCLUDED.sha256_hash;`,
+      [
+        'rec-demo-002',
+        'pat-profile-001',
+        'Aarav Sharma',
+        'doc-profile-001',
+        'Dr. Priya Patel',
+        'hosp-st-jude',
+        'St. Jude General',
+        'Routine Blood Chemistry & Lipid Profile',
+        'Diagnostic Report',
+        'E78.5 - Hyperlipidemia, unspecified',
+        encRecord2.ciphertext,
+        encRecord2.iv,
+        encRecord2.authTag,
+        JSON.stringify(wrappedKey2),
+        JSON.stringify(wrappedKey2),
+        sha256Record2,
+        ['Atorvastatin 10mg once daily'],
+        ['Total Cholesterol', 'HDL', 'LDL', 'Triglycerides', 'Fasting Blood Glucose'],
+      ]
+    );
+    console.log('[Seed] Seeded 2 medical records with AES-256-GCM encryption.');
 
-    // 4. Patients
-    for (const patient of db.patients) {
-      await client.query(
-        `INSERT INTO patients
-        (id, user_id, full_name, email, dob, gender, blood_type,
-         allergies, medical_conditions, primary_hospital_id,
-         primary_hospital_name, emergency_contact, trust_score,
-         public_key_ecc)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-        ON CONFLICT (id) DO UPDATE SET
-          user_id = EXCLUDED.user_id,
-          full_name = EXCLUDED.full_name,
-          email = EXCLUDED.email,
-          dob = EXCLUDED.dob,
-          gender = EXCLUDED.gender,
-          blood_type = EXCLUDED.blood_type,
-          allergies = EXCLUDED.allergies,
-          medical_conditions = EXCLUDED.medical_conditions,
-          primary_hospital_id = EXCLUDED.primary_hospital_id,
-          primary_hospital_name = EXCLUDED.primary_hospital_name,
-          emergency_contact = EXCLUDED.emergency_contact,
-          trust_score = EXCLUDED.trust_score,
-          public_key_ecc = EXCLUDED.public_key_ecc`,
-        [
-          patient.id,
-          patient.userId,
-          patient.fullName,
-          patient.email,
-          patient.dob,
-          patient.gender,
-          patient.bloodType,
-          patient.allergies ?? [],
-          patient.medicalConditions ?? [],
-          patient.primaryHospitalId,
-          patient.primaryHospitalName,
-          patient.emergencyContact,
-          patient.trustScore,
-          patient.publicKeyEcc,
-        ]
-      );
-    }
+    // 7. Seed 2 Consents (1 GRANTED, 1 PENDING)
+    await client.query(
+      `INSERT INTO consent_records (
+         id, patient_id, patient_name, doctor_id, doctor_name, requesting_hospital_id,
+         requesting_hospital_name, record_id, record_title, status, purpose, reason, granted_at, expires_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW() + INTERVAL '30 days')
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         purpose = EXCLUDED.purpose,
+         reason = EXCLUDED.reason;`,
+      [
+        'consent-demo-001',
+        'pat-profile-001',
+        'Aarav Sharma',
+        'doc-profile-001',
+        'Dr. Priya Patel',
+        'hosp-st-jude',
+        'St. Jude General',
+        'rec-demo-001',
+        'Comprehensive Cardiac Evaluation',
+        'GRANTED',
+        'Treatment',
+        'Ongoing outpatient cardiovascular management',
+      ]
+    );
 
-    console.log(`Patients seeded: ${db.patients.length}`);
-
-    // 5. Doctors
-    for (const doctor of db.doctors) {
-      await client.query(
-        `INSERT INTO doctors
-        (id, user_id, full_name, specialty, department_id,
-         department_name, hospital_id, hospital_name, license_number,
-         trust_score, assigned_patients_count)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (id) DO UPDATE SET
-          user_id = EXCLUDED.user_id,
-          full_name = EXCLUDED.full_name,
-          specialty = EXCLUDED.specialty,
-          department_id = EXCLUDED.department_id,
-          department_name = EXCLUDED.department_name,
-          hospital_id = EXCLUDED.hospital_id,
-          hospital_name = EXCLUDED.hospital_name,
-          license_number = EXCLUDED.license_number,
-          trust_score = EXCLUDED.trust_score,
-          assigned_patients_count = EXCLUDED.assigned_patients_count`,
-        [
-          doctor.id,
-          doctor.userId,
-          doctor.fullName,
-          doctor.specialty,
-          doctor.departmentId ?? null,
-          doctor.departmentName ?? null,
-          doctor.hospitalId ?? null,
-          doctor.hospitalName ?? null,
-          doctor.licenseNumber,
-          doctor.trustScore,
-          doctor.assignedPatientsCount,
-        ]
-      );
-    }
-
-    console.log(`Doctors seeded: ${db.doctors.length}`);
-
-    // 6. Appointments
-    for (const appointment of db.appointments) {
-      await client.query(
-        `INSERT INTO appointments
-        (id, patient_id, patient_name, doctor_id, doctor_name,
-         hospital_id, hospital_name, appointment_date,
-         appointment_time, type, status, notes)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        ON CONFLICT (id) DO NOTHING`,
-        [
-          appointment.id,
-          appointment.patientId,
-          appointment.patientName,
-          appointment.doctorId,
-          appointment.doctorName,
-          appointment.hospitalId,
-          appointment.hospitalName,
-          appointment.date,
-          appointment.time,
-          appointment.type,
-          appointment.status,
-          appointment.notes ?? null,
-        ]
-      );
-    }
-
-    console.log(`Appointments seeded: ${db.appointments.length}`);
-
-    // 7. Medical Records
-    for (const record of db.medicalRecords) {
-      await client.query(
-        `INSERT INTO medical_records
-        (id, patient_id, patient_name, doctor_id, doctor_name,
-         hospital_id, hospital_name, title, record_type, diagnosis,
-         encrypted_content, iv_aes, auth_tag, ecc_encrypted_aes_key,
-         sha256_hash, clsm_hash, mhe_ciphertext, encryption_time_ms,
-         decryption_time_ms, fabric_tx_id, file_dag_cid, created_at,
-         prescriptions, lab_tests, iot_device_id)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-         $16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
-        ON CONFLICT (id) DO NOTHING`,
-        [
-          record.id,
-          record.patientId,
-          record.patientName,
-          record.doctorId,
-          record.doctorName,
-          record.hospitalId,
-          record.hospitalName,
-          record.title,
-          record.recordType,
-          record.diagnosis,
-          record.encryptedContent,
-          record.ivAes,
-          record.authTag ?? null,
-          record.eccEncryptedAesKey,
-          record.sha256Hash,
-          record.clsmHash ?? null,
-          record.mheCiphertext ?? null,
-          record.encryptionTimeMs ?? null,
-          record.decryptionTimeMs ?? null,
-          record.fabricTxId,
-          record.fileDagCid ?? null,
-          record.createdAt,
-          record.prescriptions ?? [],
-          record.labTests ?? [],
-          record.iotDeviceId ?? null,
-        ]
-      );
-    }
-
-    console.log(`Medical records seeded: ${db.medicalRecords.length}`);
-
-    // 8. Consent Records
-    for (const consent of db.consentRecords) {
-      await client.query(
-        `INSERT INTO consent_records
-        (id, patient_id, patient_name, doctor_id, doctor_name,
-         requesting_hospital_id, requesting_hospital_name, record_id,
-         record_title, status, purpose, granted_at, expires_at,
-         fabric_tx_id, created_at)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-        ON CONFLICT (id) DO NOTHING`,
-        [
-          consent.id,
-          consent.patientId,
-          consent.patientName,
-          consent.doctorId ?? null,
-          consent.doctorName ?? null,
-          consent.requestingHospitalId,
-          consent.requestingHospitalName,
-          consent.recordId ?? null,
-          consent.recordTitle ?? null,
-          consent.status,
-          consent.purpose,
-          consent.grantedAt ?? null,
-          consent.expiresAt ?? null,
-          consent.fabricTxId,
-          consent.createdAt,
-        ]
-      );
-    }
-
-    console.log(`Consent records seeded: ${db.consentRecords.length}`);
-
-    // 9. Audit Logs
-    for (const log of db.auditLogs) {
-      await client.query(
-        `INSERT INTO audit_logs
-        (id, user_id, user_name, user_role, hospital_name,
-         action, resource_id, ip_address, trust_impact,
-         fabric_tx_id, timestamp)
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (id) DO NOTHING`,
-        [
-          log.id,
-          log.userId,
-          log.userName,
-          log.userRole,
-          log.hospitalName,
-          log.action,
-          log.resourceId ?? null,
-          log.ipAddress,
-          log.trustImpact,
-          log.fabricTxId ?? null,
-          log.timestamp,
-        ]
-      );
-    }
-
-    console.log(`Audit logs seeded: ${db.auditLogs.length}`);
-
-    // 10. Notifications
-    for (const notification of db.notifications) {
-      await client.query(
-        `INSERT INTO notifications
-        (id, title, message, type, timestamp, read)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        ON CONFLICT (id) DO NOTHING`,
-        [
-          notification.id,
-          notification.title,
-          notification.message,
-          notification.type,
-          notification.timestamp,
-          notification.read,
-        ]
-      );
-    }
-
-    console.log(`Notifications seeded: ${db.notifications.length}`);
+    await client.query(
+      `INSERT INTO consent_records (
+         id, patient_id, patient_name, doctor_id, doctor_name, requesting_hospital_id,
+         requesting_hospital_name, record_id, record_title, status, purpose, reason, granted_at, expires_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NULL, NULL)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         purpose = EXCLUDED.purpose,
+         reason = EXCLUDED.reason;`,
+      [
+        'consent-demo-002',
+        'pat-profile-001',
+        'Aarav Sharma',
+        null,
+        null,
+        'hosp-metro-heart',
+        'Metro Heart & Cancer Specialty',
+        'rec-demo-002',
+        'Routine Blood Chemistry & Lipid Profile',
+        'PENDING',
+        'Second opinion',
+        'Cardiology specialist second opinion review',
+      ]
+    );
+    console.log('[Seed] Seeded 2 consent records (1 GRANTED, 1 PENDING).');
 
     await client.query('COMMIT');
-
-    console.log('');
-    console.log('======================================');
-    console.log('PostgreSQL seed completed successfully');
-    console.log('======================================');
+    console.log('[Seed] Database transaction committed successfully.');
   } catch (error) {
     await client.query('ROLLBACK');
-
-    console.error('Seed failed:');
-    console.error(error);
-
-    process.exitCode = 1;
+    console.error('[Seed] Error seeding database, transaction rolled back:', error);
+    throw error;
   } finally {
     client.release();
-    await pool.end();
   }
+
+  // Print Demo Logins clearly to console
+  console.log('\n======================================================================');
+  console.log('FedTrustMed Demo Logins (Approved & Identity-Verified)');
+  console.log('======================================================================');
+  console.log('1. PATIENT:');
+  console.log('   Email:    patient@fedtrustmed.demo');
+  console.log('   Password: Password123!');
+  console.log('   Name:     Aarav Sharma (St. Jude General)');
+  console.log('----------------------------------------------------------------------');
+  console.log('2. DOCTOR:');
+  console.log('   Email:    doctor@fedtrustmed.demo');
+  console.log('   Password: Password123!');
+  console.log('   Name:     Dr. Priya Patel (Cardiology, St. Jude General)');
+  console.log('----------------------------------------------------------------------');
+  console.log('3. HOSPITAL_ADMIN:');
+  console.log('   Email:    hospital_admin@fedtrustmed.demo');
+  console.log('   Password: Password123!');
+  console.log('   Name:     Rajesh Verma (St. Jude General)');
+  console.log('----------------------------------------------------------------------');
+  console.log('4. SYSTEM_ADMIN:');
+  console.log('   Email:    system_admin@fedtrustmed.demo');
+  console.log('   Password: Password123!');
+  console.log('   Name:     Vikram Malhotra (System Administrator)');
+  console.log('======================================================================\n');
 }
 
-seedDatabase();
+// Auto-run if executed as script
+if (process.argv[1] && (process.argv[1].endsWith('seedDatabase.ts') || process.argv[1].endsWith('seedDatabase.js'))) {
+  seedDatabase()
+    .then(() => pool.end())
+    .catch((err) => {
+      console.error('[Seed] Fatal error:', err);
+      pool.end().finally(() => process.exit(1));
+    });
+}

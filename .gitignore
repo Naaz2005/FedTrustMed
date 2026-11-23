@@ -1,8 +1,39 @@
+# Dependencies
 node_modules/
-build/
+
+# Build outputs
 dist/
-coverage/
-.DS_Store
-*.log
-.env*
+dist-ssr/
+*.local
+
+# Environment variables
+.env
+.env.*
 !.env.example
+
+# Key and certificate files
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cert
+
+# Backup and temporary files
+*.backup
+*.before-*
+*.bak
+*.tmp
+*.temp
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

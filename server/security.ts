@@ -1,59 +1,146 @@
-import type { User } from '../src/types/index.js';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
-/** Fields that must never leave the server. */
-const SECRET_FIELDS = ['password', 'privateKeyEnc', 'mfaSecret', 'mfaSecretEnc', 'aadhaarHash'] as const;
+const DEFAULT_DEV_MASTER_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
-export function publicUser<T extends Partial<User> & Record<string, any>>(user: T): Omit<T, (typeof SECRET_FIELDS)[number]> {
-  const copy: Record<string, any> = { ...user };
-  for (const f of SECRET_FIELDS) delete copy[f];
-  return copy as any;
+// Pre-computed valid bcrypt hash with cost factor 12 for timing-attack mitigation
+const DUMMY_BCRYPT_HASH = '$2a$12$89AHDrTprjbv8RoCexCa7Oa6ulBGRIS7wPkdjDfWF4i.710fU0OW6';
+
+let devJwtSecret: string | null = null;
+
+/**
+ * Resolves the 32-byte MASTER_KEY from environment variables.
+ * In production, it must be exactly 64 hexadecimal characters.
+ */
+export function getMasterKey(): Buffer {
+  const hex = process.env.MASTER_KEY || DEFAULT_DEV_MASTER_KEY;
+  if (/^[0-9a-fA-F]{64}$/.test(hex)) {
+    return Buffer.from(hex, 'hex');
+  }
+  return crypto.createHash('sha256').update(hex).digest();
 }
 
-/* Verhoeff checksum - every valid Aadhaar number satisfies it. */
-const d = [
-  [0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],
-  [5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0],
-];
-const p = [
-  [0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],
-  [9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8],
-];
-
-export function isValidAadhaar(num: string): boolean {
-  if (typeof num !== 'string') return false;
-  const trimmed = num.trim().toUpperCase();
-  // Controlled simulated identity format for academic prototype
-  if (/^TEST-AADHAAR-[A-Z0-9_-]+$/i.test(trimmed)) return true;
-  // Standard 12-digit numeric Aadhaar with Verhoeff checksum
-  if (!/^[2-9]\d{11}$/.test(trimmed)) return false; // 12 digits, cannot start with 0 or 1
-  let c = 0;
-  const digits = trimmed.split('').reverse().map(Number);
-  digits.forEach((dig, i) => { c = d[c][p[i % 8][dig]]; });
-  return c === 0;
+/**
+ * Derives a cryptographic pepper from MASTER_KEY using HKDF (RFC 5869).
+ */
+export function derivePepper(context: string = 'fedtrustmed_aadhaar_pepper'): Buffer {
+  const masterKey = getMasterKey();
+  return Buffer.from(
+    crypto.hkdfSync('sha256', masterKey, Buffer.alloc(0), Buffer.from(context, 'utf-8'), 32)
+  );
 }
 
-export const isStrongPassword = (pw: unknown): pw is string =>
-  typeof pw === 'string' && pw.length >= 10 && pw.length <= 128 && /[a-z]/i.test(pw) && /\d/.test(pw);
-
-export const isEmail = (v: unknown): v is string =>
-  typeof v === 'string' && v.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-
-/** Account lockout: 5 failures in 15 minutes locks the (email, ip) pair for 15 minutes. */
-const WINDOW_MS = 15 * 60 * 1000;
-const MAX_FAILS = 5;
-const failures = new Map<string, { count: number; first: number }>();
-
-export const loginKey = (email: string, ip: string) => `${email.toLowerCase()}|${ip}`;
-export function isLockedOut(key: string): boolean {
-  const f = failures.get(key);
-  if (!f) return false;
-  if (Date.now() - f.first > WINDOW_MS) { failures.delete(key); return false; }
-  return f.count >= MAX_FAILS;
+/**
+ * Computes deterministic HMAC-SHA256 hash for Aadhaar number using a pepper derived from MASTER_KEY.
+ * Preserves privacy while allowing unique constraint verification and indexed lookups.
+ */
+export function computeAadhaarHash(aadhaar: string): string {
+  if (typeof aadhaar !== 'string') {
+    throw new TypeError('Aadhaar must be a string');
+  }
+  const cleanAadhaar = aadhaar.trim().replace(/[\s-]/g, '');
+  const pepper = derivePepper('fedtrustmed_aadhaar_pepper');
+  return crypto.createHmac('sha256', pepper).update(cleanAadhaar, 'utf-8').digest('hex');
 }
-export function recordLoginFailure(key: string): number {
-  const f = failures.get(key);
-  if (!f || Date.now() - f.first > WINDOW_MS) { failures.set(key, { count: 1, first: Date.now() }); return 1; }
-  f.count += 1;
-  return f.count;
+
+export const hashAadhaar = computeAadhaarHash;
+
+export const BCRYPT_COST = 12;
+
+export async function hashPassword(plainText: string): Promise<string> {
+  const salt = await bcrypt.genSalt(BCRYPT_COST);
+  return bcrypt.hash(plainText, salt);
 }
-export const clearLoginFailures = (key: string) => void failures.delete(key);
+
+export async function comparePassword(plainText: string, hash: string): Promise<boolean> {
+  if (!plainText || !hash) {
+    return false;
+  }
+  return bcrypt.compare(plainText, hash);
+}
+
+/**
+ * Runs constant-time bcrypt compare even for unknown accounts or invalid inputs,
+ * mitigating user enumeration via timing differences.
+ * A null, empty, or non-string password will never validate.
+ */
+export async function timingSafePasswordCompare(
+  providedPassword: unknown,
+  storedHash?: string | null
+): Promise<boolean> {
+  const passwordStr = typeof providedPassword === 'string' ? providedPassword : '';
+  const hashToCompare =
+    typeof storedHash === 'string' && storedHash.startsWith('$2')
+      ? storedHash
+      : DUMMY_BCRYPT_HASH;
+
+  // Always execute bcrypt.compare so execution time is indistinguishable
+  const matches = await bcrypt.compare(passwordStr, hashToCompare);
+
+  // A null, empty, or non-string password can never log in
+  if (!providedPassword || typeof providedPassword !== 'string' || providedPassword.trim() === '') {
+    return false;
+  }
+
+  // If no legitimate stored hash existed, authentication must fail
+  if (!storedHash || typeof storedHash !== 'string' || !storedHash.startsWith('$2')) {
+    return false;
+  }
+
+  return matches;
+}
+
+/**
+ * Retrieves the JWT_SECRET from environment.
+ * Must be at least 32 characters in production; generates an ephemeral secret with a console warning in development.
+ */
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET?.trim();
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!secret || secret.length < 32) {
+    if (isProd) {
+      throw new Error('FATAL: JWT_SECRET must be set and at least 32 characters in production');
+    }
+    if (!devJwtSecret) {
+      console.warn(
+        '[SECURITY WARNING] JWT_SECRET is missing or < 32 characters in .env. Using ephemeral random secret for development.'
+      );
+      devJwtSecret = crypto.randomBytes(32).toString('hex');
+    }
+    return devJwtSecret;
+  }
+
+  return secret;
+}
+
+export interface TokenPayload {
+  userId: string;
+  email: string;
+  role: string;
+  hospitalId: string | null;
+  departmentId: string | null;
+  [key: string]: any;
+}
+
+/**
+ * Signs a JWT token with HS256 algorithm and 1 hour expiration.
+ */
+export function signToken(payload: TokenPayload): string {
+  const secret = getJwtSecret();
+  return jwt.sign(payload, secret, {
+    algorithm: 'HS256',
+    expiresIn: '1h',
+  });
+}
+
+/**
+ * Verifies a JWT token with HS256 algorithm.
+ */
+export function verifyToken(token: string): TokenPayload {
+  const secret = getJwtSecret();
+  return jwt.verify(token, secret, {
+    algorithms: ['HS256'],
+  }) as TokenPayload;
+}

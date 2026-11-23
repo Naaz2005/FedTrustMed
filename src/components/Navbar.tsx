@@ -1,220 +1,242 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { UserRole, NotificationItem } from '../types';
-import { api } from '../services/api';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  ShieldCheck,
   Bell,
-  Moon,
   Sun,
-  Lock,
+  Moon,
   LogOut,
-  LogIn,
+  AlertTriangle,
+  Building,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  Check,
+  Shield,
+  Menu,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { api, AppNotification } from '../services/api';
 
-export const Navbar: React.FC<{
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-}> = ({ setActiveTab }) => {
-  const {
-    user,
-    role,
-    logout,
-    setOpenLoginModal,
-    darkMode,
-    toggleDarkMode,
-  } = useAuth();
+interface NavbarProps {
+  onToggleSidebar?: () => void;
+  onNavigate?: (item: string) => void;
+}
 
-  const [showNotifs, setShowNotifs] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) => {
+  const { user, logout, simulationMode } = useAuth();
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('fedtrustmed_theme');
+    if (saved) return saved === 'dark';
+    return document.documentElement.classList.contains('dark') || true;
+  });
 
-  const fetchNotifs = async () => {
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Sync theme with DOM on mount and change
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('fedtrustmed_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('fedtrustmed_theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  // Load notifications from GET /api/notifications
+  const fetchNotifications = async () => {
     try {
-      const data = await api.getNotifications();
-
-      if (data && data.notifications) {
-        setNotifications(data.notifications);
-      }
-    } catch (e) {
-      console.error('Failed to fetch notifications:', e);
+      const items = await api.getNotifications();
+      setNotifications(items);
+    } catch (err) {
+      console.warn('Failed to fetch notifications:', err);
     }
   };
 
   useEffect(() => {
-    fetchNotifs();
+    if (user) {
+      fetchNotifications();
+      const interval = setInterval(fetchNotifications, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
-    const interval = setInterval(fetchNotifs, 10000);
-
-    return () => clearInterval(interval);
+  // Close notifications dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setIsNotifOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleMarkRead = async () => {
+  const handleMarkAsRead = async (id: string) => {
     try {
-      await api.markNotificationsRead();
-      await fetchNotifs();
-    } catch (e) {
-      console.error('Failed to mark notifications as read:', e);
+      await api.markNotificationRead(id);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+    } catch (err) {
+      console.error('Failed to mark notification as read:', err);
     }
   };
 
-  const getRoleBadgeColor = (r: UserRole) => {
-    switch (r) {
-      case 'PATIENT':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 border-blue-200 dark:border-blue-700';
-
-      case 'DOCTOR':
-        return 'bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-200 border-teal-200 dark:border-teal-700';
-
-      case 'HOSPITAL_ADMIN':
-        return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700';
-
-      case 'SYSTEM_ADMIN':
-        return 'bg-purple-100 text-purple-800 dark:bg-purple-900/60 dark:text-purple-200 border-purple-200 dark:border-purple-700';
-
-      default:
-        return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700';
+  const handleMarkAllAsRead = async () => {
+    try {
+      await api.markAllNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    } catch (err) {
+      console.error('Failed to mark all as read:', err);
     }
-  };
-
-  const getTrustBadgeColor = (score: number) => {
-    if (score >= 80) {
-      return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30';
-    }
-
-    if (score >= 40) {
-      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30';
-    }
-
-    return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30';
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-30 w-full bg-slate-900 border-b border-slate-800 dark:bg-slate-950 dark:border-slate-800/80">
+      {/* 1. FROZEN ACCOUNT BANNER */}
+      {user?.isFrozen && (
+        <div className="bg-rose-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-xs font-bold tracking-wide shadow-inner animate-pulse">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>
+            ACCOUNT FROZEN: Your account access has been suspended due to security policy or trust-score thresholds. Please contact your hospital administrator.
+          </span>
+        </div>
+      )}
 
-        {/* Left: Brand Identity */}
-        <div
-          className="flex items-center gap-3 cursor-pointer"
-          onClick={() => setActiveTab('dashboard')}
-        >
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
+      {/* 2. MAIN NAVBAR CONTENT */}
+      <div className="h-16 px-4 sm:px-6 flex items-center justify-between gap-4">
+        
+        {/* Left Side: Sidebar Toggle & Node / Hospital Info */}
+        <div className="flex items-center space-x-3">
+          {onToggleSidebar && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              aria-label="Toggle sidebar"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
 
-          <div>
+          <div className="flex items-center gap-2">
+            <Building className="w-4 h-4 text-teal-400 shrink-0" />
             <div className="flex items-center gap-2">
-              <span className="font-bold text-lg text-slate-900 dark:text-white tracking-tight">
-                FedTrustMed
+              <span className="text-xs font-semibold text-slate-200 truncate max-w-[180px] sm:max-w-xs">
+                {user?.hospitalName || 'FedTrustMed Central Network'}
               </span>
-
-              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold tracking-wider uppercase bg-blue-50 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
-                Fabric Peer Active
+              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Node Online
               </span>
             </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">
-              Federated Blockchain & Dynamic Trust Framework
-            </p>
           </div>
+
+          {simulationMode && (
+            <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+              <Sparkles className="w-3 h-3" />
+              SIMULATION ACTIVE
+            </span>
+          )}
         </div>
 
-        {/* Right Controls */}
-        <div className="flex items-center gap-2 sm:gap-3">
-
-          {/* Accounts Portal */}
-          <button
-            onClick={() => setOpenLoginModal(true)}
-            className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-xs font-bold flex items-center gap-1.5 transition-colors"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-
-            <span className="hidden sm:inline">
-              Accounts Portal
-            </span>
-          </button>
-
-          {/* Dark Mode Toggle */}
-          <button
-            onClick={toggleDarkMode}
-            aria-label="Toggle theme"
-            className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          >
-            {darkMode ? (
-              <Sun className="w-5 h-5 text-amber-400" />
-            ) : (
-              <Moon className="w-5 h-5" />
-            )}
-          </button>
-
+        {/* Right Side: Notification Bell, Dark Mode Toggle, User Profile & Logout */}
+        <div className="flex items-center space-x-2 sm:space-x-3">
+          
           {/* Notification Bell */}
-          <div className="relative">
+          <div className="relative" ref={notifRef}>
             <button
-              onClick={() => {
-                setShowNotifs(!showNotifs);
-
-                if (unreadCount > 0) {
-                  handleMarkRead();
-                }
-              }}
-              aria-label="Notifications"
-              className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative"
+              type="button"
+              onClick={() => setIsNotifOpen(!isNotifOpen)}
+              className="relative p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+              aria-label="View notifications"
             >
-              <Bell className="w-5 h-5" />
-
+              <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+                <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center ring-2 ring-slate-900">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
               )}
             </button>
 
-            {/* Notification Drawer */}
-            {showNotifs && (
-              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-4 z-50">
-
-                <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <h4 className="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <Bell className="w-4 h-4 text-blue-600" />
-
-                    Security & System Alerts
-                  </h4>
-
-                  <span className="text-xs text-slate-400">
-                    {notifications.length} total
-                  </span>
+            {/* Notification Dropdown */}
+            {isNotifOpen && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden z-50 text-slate-200 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">
+                      Notifications
+                    </span>
+                    {unreadCount > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 font-semibold">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllAsRead}
+                      className="text-[11px] text-teal-400 hover:text-teal-300 font-semibold"
+                    >
+                      Mark all as read
+                    </button>
+                  )}
                 </div>
 
-                <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/80">
                   {notifications.length === 0 ? (
-                    <div className="text-center py-6 text-xs text-slate-400">
-                      No notifications
+                    <div className="py-8 text-center text-xs text-slate-500">
+                      No notifications yet
                     </div>
                   ) : (
                     notifications.map((n) => (
                       <div
                         key={n.id}
-                        className={`p-2.5 rounded-xl text-xs border ${
-                          n.type === 'ALERT'
-                            ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 text-rose-800 dark:text-rose-200'
-                            : n.type === 'SUCCESS'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-200'
-                            : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                        onClick={() => handleMarkAsRead(n.id)}
+                        className={`p-3.5 hover:bg-slate-800/60 transition-colors cursor-pointer flex items-start gap-3 ${
+                          !n.read ? 'bg-teal-500/5' : ''
                         }`}
                       >
-                        <div className="font-semibold flex items-center justify-between mb-1">
-                          <span>{n.title}</span>
-
-                          <span className="text-[10px] opacity-70">
-                            {new Date(n.timestamp).toLocaleTimeString([], {
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                            n.type === 'SUCCESS'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : n.type === 'ALERT'
+                              ? 'bg-rose-500/20 text-rose-400'
+                              : n.type === 'WARNING'
+                              ? 'bg-amber-500/20 text-amber-400'
+                              : 'bg-teal-500/20 text-teal-400'
+                          }`}
+                        >
+                          {n.type === 'SUCCESS' && <CheckCircle2 className="w-3.5 h-3.5" />}
+                          {n.type === 'ALERT' && <AlertTriangle className="w-3.5 h-3.5" />}
+                          {n.type === 'WARNING' && <Clock className="w-3.5 h-3.5" />}
+                          {n.type === 'INFO' && <Shield className="w-3.5 h-3.5" />}
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-xs font-semibold text-slate-200 truncate">
+                              {n.title}
+                            </span>
+                            {!n.read && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {n.message}
+                          </p>
+                          <span className="text-[10px] text-slate-500 mt-1 block font-mono">
+                            {new Date(n.created_at).toLocaleTimeString([], {
                               hour: '2-digit',
                               minute: '2-digit',
                             })}
                           </span>
                         </div>
-
-                        <p className="opacity-90 leading-relaxed">
-                          {n.message}
-                        </p>
                       </div>
                     ))
                   )}
@@ -223,55 +245,54 @@ export const Navbar: React.FC<{
             )}
           </div>
 
-          {/* User Profile & Trust Badge */}
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
+          {/* Dark Mode Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Toggle color theme"
+            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-300" />}
+          </button>
 
-            {/* User Information */}
-            <div className="hidden sm:block text-right">
-              <div className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1 justify-end">
-                {user?.fullName || 'User'}
+          <div className="h-5 w-px bg-slate-800" />
 
-                {user?.isFrozen && (
-                  <Lock className="w-3 h-3 text-rose-500" />
-                )}
+          {/* User Information & Role */}
+          {user && (
+            <div className="flex items-center space-x-2">
+              <div
+                onClick={() => onNavigate && onNavigate('My Account')}
+                className="flex items-center gap-2 cursor-pointer group"
+                title="My Account"
+              >
+                <div className="w-8 h-8 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 group-hover:border-teal-400 transition-colors">
+                  {user.fullName.charAt(0)}
+                </div>
+                <div className="hidden lg:block text-left">
+                  <div className="text-xs font-bold text-white group-hover:text-teal-300 transition-colors truncate max-w-[120px]">
+                    {user.fullName}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    {user.role}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex items-center gap-1 justify-end">
-                <span
-                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${getRoleBadgeColor(
-                    role
-                  )}`}
-                >
-                  {role}
-                </span>
-              </div>
+              {/* Logout Button */}
+              <button
+                type="button"
+                onClick={logout}
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                aria-label="Sign out"
+                title="Sign out of account"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
-
-            {/* Dynamic Trust Chip */}
-            <div
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border cursor-pointer ${getTrustBadgeColor(
-                user?.trustScore ?? 0
-              )}`}
-              onClick={() => setActiveTab('trust')}
-              title="Click to inspect Dynamic Trust Engine Score"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-
-              <span>
-                TS: {user?.trustScore ?? 0}
-              </span>
-            </div>
-
-            {/* Log Out */}
-            <button
-              onClick={logout}
-              title="Log Out & Return to Landing Page"
-              className="p-2 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors ml-1"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          )}
         </div>
+
       </div>
     </header>
   );

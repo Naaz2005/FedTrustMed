@@ -1,6 +1,0 @@
-{
-  "name": "FedTrustMed",
-  "description": "A Federated Blockchain Framework with Dynamic Trust Management and Lightweight Encryption for Secure Healthcare Data Sharing.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
